@@ -9,3 +9,5 @@ pnpm-debug.log*
 *.log
 *.tsbuildinfo
 *.tmp
+
+.vercel
