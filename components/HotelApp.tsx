@@ -14,6 +14,7 @@ import { createId } from "@/lib/ids";
 import { loadHotelData, saveHotelData } from "@/lib/firebase/db";
 import { hasFirebaseConfig } from "@/lib/firebase/client";
 import { listenAuth, loginWithEmail, logout } from "@/lib/firebase/auth";
+import { createBackup, createDailyBackupIfNeeded, listBackups, restoreBackup, type BackupListItem } from "@/lib/firebase/backups";
 import type { User } from "firebase/auth";
 
 type Tab = "upcoming" | "calendar" | "transactions" | "finance";
@@ -137,6 +138,8 @@ export function HotelApp({
   const [urlModalDismissed, setUrlModalDismissed] = useState(false);
   const [authReady, setAuthReady] = useState(false);
   const [user, setUser] = useState<User | null>(null);
+  const [backups, setBackups] = useState<BackupListItem[]>([]);
+  const [backupStatus, setBackupStatus] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const handledInitialEditRef = useRef(false);
 
@@ -183,9 +186,15 @@ export function HotelApp({
     loadHotelData().then(({ data: loaded, source }) => {
       setData(loaded);
       setSync(source === "cloud" ? "Облак: синхронизирано" : source === "local" ? "Локален backup" : "Няма данни");
+      if (source === "cloud") {
+        createDailyBackupIfNeeded(loaded, user.email || undefined)
+          .then(() => refreshBackups())
+          .catch(() => undefined);
+      }
     }).catch(() => {
       setSync("Грешка при зареждане");
     });
+    refreshBackups();
   }, [user]);
 
   useEffect(() => {
@@ -200,6 +209,11 @@ export function HotelApp({
     setData(nextData);
     const target = await saveHotelData(nextData);
     setSync(target === "cloud" ? "Облак: записано" : "Записано локално");
+    refreshBackups();
+  }
+
+  async function refreshBackups() {
+    listBackups().then(setBackups).catch(() => undefined);
   }
 
   function openNewReservation(propertyId = activeProperty, isoDate = todayISO(), room: RoomId | "all" = "") {
@@ -252,6 +266,7 @@ export function HotelApp({
 
   async function deleteReservation(id: string) {
     if (!window.confirm("Да изтрия ли резервацията?")) return;
+    await createBackup(data, "before-delete", user?.email || undefined);
     await persist(deleteReservationById(data, id));
     setModalDraft(null);
   }
@@ -291,8 +306,33 @@ export function HotelApp({
   async function importJson(file: File) {
     const json = JSON.parse(await file.text());
     const imported = normalizeImportedData(json);
+    await createBackup(data, "before-import", user?.email || undefined);
     await persist(imported);
     setSync("JSON импортът е успешен");
+  }
+
+  async function handleManualBackup() {
+    setBackupStatus("Създаване на backup...");
+    try {
+      await createBackup(data, "manual", user?.email || undefined);
+      await refreshBackups();
+      setBackupStatus("Backup-ът е създаден.");
+    } catch {
+      setBackupStatus("Неуспешно създаване на backup.");
+    }
+  }
+
+  async function handleRestoreBackup(id: string) {
+    setBackupStatus("Възстановяване...");
+    try {
+      const restored = await restoreBackup(id, user?.email || undefined);
+      setData(restored);
+      await refreshBackups();
+      setSync("Данните са възстановени от backup");
+      setBackupStatus("Възстановяването е готово.");
+    } catch (error) {
+      setBackupStatus(error instanceof Error ? error.message : "Backup-ът не може да бъде възстановен.");
+    }
   }
 
   if (!hasFirebaseConfig()) {
@@ -377,6 +417,14 @@ export function HotelApp({
           setFilter={setListFilter}
           onNew={() => openNewReservation()}
           onEdit={openEditReservation}
+        />
+      )}
+      {tab === "upcoming" && (
+        <BackupTools
+          backups={backups}
+          status={backupStatus}
+          onCreateBackup={handleManualBackup}
+          onRestoreBackup={handleRestoreBackup}
         />
       )}
       {tab === "calendar" && (
@@ -672,6 +720,87 @@ function ReservationCard({ reservation, onEdit }: { reservation: Reservation; on
         onEdit(reservation);
       }}>Редакция</a>
     </article>
+  );
+}
+
+function BackupTools({ backups, status, onCreateBackup, onRestoreBackup }: { backups: BackupListItem[]; status: string; onCreateBackup: () => Promise<void>; onRestoreBackup: (id: string) => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [pendingRestore, setPendingRestore] = useState<BackupListItem | null>(null);
+  const latest = backups[0];
+
+  return (
+    <section className="soft-card rounded-3xl p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-black text-ink">Инструменти и backup</h2>
+          <p className="text-sm font-semibold text-clay">За защита при грешка, изтриване или проблем с Firebase.</p>
+        </div>
+        <Button type="button" className="tap-target rounded-2xl border border-stone-200 bg-white px-4 py-2 font-black text-clay shadow-sm" onClick={() => setOpen((value) => !value)}>
+          {open ? "Скрий" : "Покажи"}
+        </Button>
+      </div>
+      {open && (
+        <div className="mt-4 grid gap-4">
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button type="button" className="tap-target rounded-2xl bg-brand-600 px-5 py-3 font-black text-white shadow-sm" onClick={() => void onCreateBackup()}>
+              Създай backup
+            </Button>
+            {latest && (
+              <Button type="button" className="tap-target rounded-2xl border border-stone-200 bg-white px-5 py-3 font-black text-clay shadow-sm" onClick={() => setPendingRestore(latest)}>
+                Върни предишното състояние
+              </Button>
+            )}
+          </div>
+          {status && <p className="rounded-2xl bg-cream p-3 text-sm font-black text-clay">{status}</p>}
+          <div className="grid gap-2">
+            <h3 className="text-lg font-black text-ink">Backup история</h3>
+            {!backups.length && <p className="rounded-2xl bg-cream p-4 text-base font-semibold text-clay">Все още няма backup записи.</p>}
+            {backups.map((backup) => (
+              <article key={backup.id} className="rounded-3xl border border-stone-200 bg-cream p-4 shadow-sm">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="text-base font-black text-ink">{formatBackupDate(backup.timestamp)}</div>
+                    <div className="mt-1 text-sm font-semibold text-clay">{backupTypeLabel(backup.type)}{backup.createdBy ? ` · ${backup.createdBy}` : ""}</div>
+                    <div className="mt-2 text-sm font-bold text-stone-700">
+                      {backup.summary.reservationsCount} резервации · {backup.summary.financeRecordsCount} finance записи
+                    </div>
+                    <div className="mt-1 text-xs font-bold text-clay">{formatBackupSize(backup.summary.sizeBytes)}</div>
+                  </div>
+                  <Button type="button" className="tap-target rounded-2xl border border-rose-200 bg-white px-4 py-2 font-black text-rose-700 shadow-sm" onClick={() => setPendingRestore(backup)}>
+                    Restore
+                  </Button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      )}
+      {pendingRestore && (
+        <div className="fixed inset-0 z-50 flex items-end bg-stone-950/45 p-0 sm:items-center sm:justify-center sm:p-4">
+          <div className="w-full rounded-t-3xl bg-cream p-5 shadow-2xl sm:max-w-lg sm:rounded-3xl">
+            <h3 className="text-xl font-black text-rose-800">⚠ Това ще презапише текущите данни.</h3>
+            <p className="mt-2 text-base font-semibold text-clay">Преди restore автоматично ще се създаде safety backup.</p>
+            <div className="mt-4 rounded-2xl bg-white p-4 text-sm font-bold text-stone-700">
+              <div>{formatBackupDate(pendingRestore.timestamp)}</div>
+              <div>{pendingRestore.summary.reservationsCount} резервации</div>
+              <div>{pendingRestore.summary.financeRecordsCount} finance записи</div>
+            </div>
+            <div className="mt-5 grid gap-2 sm:grid-cols-2">
+              <Button type="button" className="tap-target rounded-2xl border border-stone-200 bg-white px-4 py-3 font-black text-clay" onClick={() => setPendingRestore(null)}>
+                Отказ
+              </Button>
+              <Button type="button" className="tap-target rounded-2xl bg-rose-700 px-4 py-3 font-black text-white" onClick={() => {
+                const id = pendingRestore.id;
+                setPendingRestore(null);
+                void onRestoreBackup(id);
+              }}>
+                Възстанови
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -1361,6 +1490,34 @@ function formatDayName(isoDate: string): string {
 function formatShortDate(isoDate: string): string {
   const [, month, day] = isoDate.split("-");
   return `${day}.${month}`;
+}
+
+function formatBackupDate(timestamp: string): string {
+  return new Intl.DateTimeFormat("bg-BG", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(timestamp));
+}
+
+function formatBackupSize(sizeBytes: number): string {
+  if (!sizeBytes) return "Размер: —";
+  return `Размер: ${Math.max(1, Math.round(sizeBytes / 1024))} KB`;
+}
+
+function backupTypeLabel(type: BackupListItem["type"]): string {
+  const labels: Record<BackupListItem["type"], string> = {
+    manual: "Ръчен backup",
+    daily: "Дневен backup",
+    "before-import": "Преди import",
+    "before-delete": "Преди изтриване",
+    "before-restore": "Преди restore",
+    "auto-save": "Автоматичен backup",
+    legacy: "Стар backup"
+  };
+  return labels[type] || "Backup";
 }
 
 function formatMonthLabel(month: string): string {

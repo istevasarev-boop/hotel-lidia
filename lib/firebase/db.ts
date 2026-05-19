@@ -53,7 +53,12 @@ export async function saveHotelData(data: AppData): Promise<"cloud" | "local"> {
     const legacySnapshot = v2ToLegacy(normalized);
     await Promise.all([
       set(ref(services.db, DB_PATH), legacySnapshot),
-      set(ref(services.db, `${BACKUP_PATH}/${now.replace(/[:.]/g, "-")}`), { ts: now, data: legacySnapshot })
+      set(ref(services.db, `${BACKUP_PATH}/${now.replace(/[:.]/g, "-")}_auto-save`), {
+        version: 1,
+        timestamp: now,
+        type: "auto-save",
+        data: legacySnapshot
+      })
     ]);
     return "cloud";
   } catch (error) {
