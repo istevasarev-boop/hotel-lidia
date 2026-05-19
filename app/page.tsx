@@ -2,6 +2,7 @@ import { HotelApp } from "@/components/HotelApp";
 import { normalizeImportedData } from "@/domain/reservations/legacyAdapter";
 import { createEmptyData, type AppData } from "@/domain/reservations/types";
 import type { PropertyId } from "@/domain/reservations/types";
+import { cookies } from "next/headers";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -16,6 +17,8 @@ export default async function Home({ searchParams }: { searchParams: SearchParam
   const filter = stringParam(params.filter);
   const query = stringParam(params.q);
   const initialLoad = await loadInitialData();
+  const cookieStore = await cookies();
+  const hasServerSession = Boolean(cookieStore.get("hotel_lidia_session")?.value);
 
   return (
     <HotelApp
@@ -30,6 +33,7 @@ export default async function Home({ searchParams }: { searchParams: SearchParam
       initialReservationDate={stringParam(params.date)}
       initialReservationRoom={room}
       initialEditReservationId={stringParam(params.edit)}
+      initialServerSession={hasServerSession}
     />
   );
 }

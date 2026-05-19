@@ -1,7 +1,7 @@
 "use client";
 
 import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
-import type { ButtonHTMLAttributes, FormEvent, ReactNode } from "react";
+import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { BarChart3, CalendarDays, ChevronLeft, ChevronRight, Download, Euro, Home, Plus, Search, Upload } from "lucide-react";
 import { validateReservationConflict } from "@/domain/reservations/conflicts";
 import { activeOnDate, addDaysISO, monthKey, normalizeCheckout, overlapsMonth, todayISO } from "@/domain/reservations/dateRange";
@@ -9,11 +9,13 @@ import { normalizeImportedData } from "@/domain/reservations/legacyAdapter";
 import { deleteReservationById, upsertReservation } from "@/domain/reservations/store";
 import { EMPTY_DATA, PROPERTIES, type AppData, type Expense, type ManualIncome, type PropertyId, type Reservation, type RoomId } from "@/domain/reservations/types";
 import { reservationBalance } from "@/domain/finance/kpis";
+import { getBulgarianHolidayInfo, type BulgarianHolidayInfo } from "@/domain/holidays/bgHolidayCalendar";
+import { formatBulgarianDateRange } from "@/lib/bgDateFormat";
 import { eur } from "@/lib/currency";
 import { createId } from "@/lib/ids";
 import { loadHotelData, saveHotelData } from "@/lib/firebase/db";
 import { hasFirebaseConfig } from "@/lib/firebase/client";
-import { listenAuth, loginWithEmail, logout } from "@/lib/firebase/auth";
+import { listenAuth, logout } from "@/lib/firebase/auth";
 import { createBackup, createDailyBackupIfNeeded, listBackups, restoreBackup, type BackupListItem } from "@/lib/firebase/backups";
 import type { User } from "firebase/auth";
 
@@ -60,40 +62,21 @@ function AuthMessage({ title, text }: { title: string; text: string }) {
 }
 
 function LoginScreen() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-
-  async function submitLogin(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setBusy(true);
-    setError("");
-    try {
-      await loginWithEmail(email.trim(), password);
-    } catch {
-      setError("Грешен email или парола.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
     <main className="mx-auto flex min-h-screen max-w-xl items-center px-4 py-8 text-ink">
-      <form className="soft-card w-full rounded-3xl p-5 shadow-sm" onSubmit={submitLogin}>
+      <form className="soft-card w-full rounded-3xl p-5 shadow-sm" action="/api/login" method="post">
         <h1 className="text-3xl font-black">Hotel Lidia</h1>
         <p className="mt-2 text-base font-semibold text-clay">Вход за семейството.</p>
         <label className="mt-5 block font-bold text-clay">
           Email
-          <input className="tap-target mt-1 w-full rounded-2xl border border-stone-200 bg-white px-3 outline-none focus:ring-2 focus:ring-brand-100" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+          <input className="tap-target mt-1 w-full rounded-2xl border border-stone-200 bg-white px-3 outline-none focus:ring-2 focus:ring-brand-100" name="email" type="email" autoComplete="email" required />
         </label>
         <label className="mt-3 block font-bold text-clay">
           Парола
-          <input className="tap-target mt-1 w-full rounded-2xl border border-stone-200 bg-white px-3 outline-none focus:ring-2 focus:ring-brand-100" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
+          <input className="tap-target mt-1 w-full rounded-2xl border border-stone-200 bg-white px-3 outline-none focus:ring-2 focus:ring-brand-100" name="password" type="password" autoComplete="current-password" required />
         </label>
-        {error && <p className="mt-3 rounded-2xl bg-rose-100 p-3 text-sm font-black text-rose-800">{error}</p>}
-        <Button type="submit" disabled={busy} className="tap-target mt-5 w-full rounded-2xl bg-brand-600 px-5 py-3 text-base font-black text-white shadow-sm disabled:opacity-60">
-          {busy ? "Влизане..." : "Вход"}
+        <Button type="submit" className="tap-target mt-5 w-full rounded-2xl bg-brand-600 px-5 py-3 text-base font-black text-white shadow-sm">
+          Вход
         </Button>
       </form>
     </main>
@@ -114,7 +97,8 @@ export function HotelApp({
   initialReservationRoom,
   initialEditReservationId,
   initialData = EMPTY_DATA,
-  initialSyncLabel
+  initialSyncLabel,
+  initialServerSession = false
 }: {
   initialTab?: Tab;
   initialProperty?: PropertyId;
@@ -127,6 +111,7 @@ export function HotelApp({
   initialEditReservationId?: string;
   initialData?: AppData;
   initialSyncLabel?: string;
+  initialServerSession?: boolean;
 }) {
   const [data, setData] = useState<AppData>(initialData);
   const [month, setMonth] = useState(() => initialMonth || monthKey(todayISO()));
@@ -137,7 +122,7 @@ export function HotelApp({
   const [sync, setSync] = useState(initialSyncLabel || (Object.keys(initialData.reservations).length ? "Облак: заредено" : "Зареждане..."));
   const [modalDraft, setModalDraft] = useState<ReservationDraft | null>(null);
   const [urlModalDismissed, setUrlModalDismissed] = useState(false);
-  const [authReady, setAuthReady] = useState(false);
+  const [authReady, setAuthReady] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   const [backups, setBackups] = useState<BackupListItem[]>([]);
   const [backupStatus, setBackupStatus] = useState("");
@@ -158,7 +143,13 @@ export function HotelApp({
 
   useEffect(() => {
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+      if (process.env.NODE_ENV === "production") {
+        navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+      } else {
+        navigator.serviceWorker.getRegistrations()
+          .then((registrations) => registrations.forEach((registration) => registration.unregister()))
+          .catch(() => undefined);
+      }
     }
   }, []);
 
@@ -168,10 +159,28 @@ export function HotelApp({
       return;
     }
 
-    return listenAuth((nextUser) => {
-      setUser(nextUser);
+    let resolved = false;
+    const fallback = window.setTimeout(() => {
+      if (!resolved) {
+        setAuthReady(true);
+      }
+    }, 5000);
+
+    try {
+      const unsubscribe = listenAuth((nextUser) => {
+        resolved = true;
+        window.clearTimeout(fallback);
+        setUser(nextUser);
+        setAuthReady(true);
+      });
+      return () => {
+        window.clearTimeout(fallback);
+        unsubscribe();
+      };
+    } catch {
+      window.clearTimeout(fallback);
       setAuthReady(true);
-    });
+    }
   }, []);
 
   useEffect(() => {
@@ -294,6 +303,25 @@ export function HotelApp({
     await persist(kind === "income" ? { ...data, manualIncomes: target } : { ...data, expenses: target });
   }
 
+  async function updateFinanceRow(kind: "income" | "expense", id: string, row: Omit<ManualIncome | Expense, "id" | "month">) {
+    const monthValue = monthKey(row.date);
+    if (kind === "income") {
+      const current = data.manualIncomes[id];
+      if (!current) return;
+      await persist({
+        ...data,
+        manualIncomes: { ...data.manualIncomes, [id]: { ...current, ...row, id, month: monthValue } }
+      });
+    } else {
+      const current = data.expenses[id];
+      if (!current) return;
+      await persist({
+        ...data,
+        expenses: { ...data.expenses, [id]: { ...current, ...row, id, month: monthValue } }
+      });
+    }
+  }
+
   function exportJson() {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -336,6 +364,12 @@ export function HotelApp({
     }
   }
 
+  async function handleLogout() {
+    await logout().catch(() => undefined);
+    await fetch("/api/logout", { method: "POST" }).catch(() => undefined);
+    window.location.href = "/";
+  }
+
   if (!hasFirebaseConfig()) {
     return <AuthMessage title="Липсва Firebase конфигурация" text="Добавете NEXT_PUBLIC_FIREBASE_* променливите в .env.local или във Vercel Environment Variables." />;
   }
@@ -344,7 +378,7 @@ export function HotelApp({
     return <AuthMessage title="Hotel Lidia" text="Проверка на достъпа..." />;
   }
 
-  if (!user) {
+  if (!user && !initialServerSession) {
     return <LoginScreen />;
   }
 
@@ -372,7 +406,7 @@ export function HotelApp({
             <Button type="button" className="tap-target rounded-xl border border-stone-200 bg-cream px-3 py-2 font-bold text-clay shadow-sm" onClick={() => { debugClick("import json"); fileRef.current?.click(); }} title="Импорт JSON">
               <Upload size={18} />
             </Button>
-            <Button type="button" className="tap-target rounded-xl border border-stone-200 bg-white px-4 py-2 font-bold text-clay shadow-sm" onClick={() => logout()}>
+            <Button type="button" className="tap-target rounded-xl border border-stone-200 bg-white px-4 py-2 font-bold text-clay shadow-sm" onClick={handleLogout}>
               Изход
             </Button>
             <input
@@ -387,7 +421,7 @@ export function HotelApp({
               }}
             />
           </div>
-          <Button type="button" className="tap-target w-fit rounded-xl border border-stone-200 bg-white px-4 py-2 font-bold text-clay shadow-sm md:hidden" onClick={() => logout()}>
+          <Button type="button" className="tap-target w-fit rounded-xl border border-stone-200 bg-white px-4 py-2 font-bold text-clay shadow-sm md:hidden" onClick={handleLogout}>
             Изход
           </Button>
         </div>
@@ -433,7 +467,7 @@ export function HotelApp({
           <CalendarView month={month} propertyId={activeProperty} reservations={reservations} onNew={openNewReservation} onEdit={openEditReservation} />
         </div>
       )}
-      {tab === "transactions" && <TransactionsView data={data} month={month} setMonth={setMonth} addRow={addFinanceRow} removeRow={removeFinanceRow} />}
+      {tab === "transactions" && <TransactionsView data={data} month={month} setMonth={setMonth} addRow={addFinanceRow} updateRow={updateFinanceRow} removeRow={removeFinanceRow} />}
       {tab === "finance" && <FinanceView data={data} />}
 
       <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 gap-1 border-t border-stone-200 bg-cream/95 p-1.5 shadow-2xl backdrop-blur md:hidden">
@@ -702,7 +736,7 @@ function ReservationCard({ reservation, onEdit }: { reservation: Reservation; on
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="text-xl font-black text-ink">{reservation.guestName || "Без име"}</div>
-          <div className="mt-1 text-base font-bold text-clay">{reservation.checkin} - {reservation.checkout}</div>
+          <div className="mt-1 text-base font-bold text-clay">{formatBulgarianDateRange(reservation.checkin, reservation.checkout)}</div>
           <div className="mt-1 text-base font-medium text-clay">{propertyName(reservation.propertyId)} · {roomsLabel(reservation)}</div>
         </div>
         <span className={"w-fit rounded-full px-3 py-1 text-xs font-black " + (reservation.depositAmount > 0 ? "bg-emerald-100 text-emerald-900" : "bg-rose-100 text-rose-900")}>
@@ -816,9 +850,11 @@ function BackupTools({ backups, status, onCreateBackup, onRestoreBackup }: { bac
 function CalendarView({ month, propertyId, reservations, onNew, onEdit }: { month: string; propertyId: PropertyId; reservations: Reservation[]; onNew: (propertyId: PropertyId, isoDate: string, room?: RoomId | "all") => void; onEdit: (reservation: Reservation) => void }) {
   const property = PROPERTIES.find((item) => item.id === propertyId) || PROPERTIES[0];
   const [year, monthNumber] = month.split("-").map(Number);
+  const [openHolidayDate, setOpenHolidayDate] = useState<string | null>(null);
   const days = new Date(year, monthNumber, 0).getDate();
   const firstOffset = (new Date(year, monthNumber - 1, 1).getDay() + 6) % 7;
   const visibleReservations = reservations.filter((reservation) => reservation.propertyId === property.id && overlapsMonth(reservation.checkin, reservation.checkout, month));
+  const activeHolidayInfo = openHolidayDate ? getBulgarianHolidayInfo(openHolidayDate) : null;
 
   return (
     <section className="soft-card rounded-3xl p-2 sm:p-3">
@@ -837,6 +873,7 @@ function CalendarView({ month, propertyId, reservations, onNew, onEdit }: { mont
       <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-black text-slate-500 sm:text-xs">
         {["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"].map((day) => <div key={day}>{day}</div>)}
       </div>
+      <HolidayInfoBar holiday={activeHolidayInfo} />
       <div className="mt-1 grid grid-cols-7 gap-1">
         {Array.from({ length: firstOffset }).map((_, index) => <div className="min-h-[78px] rounded-xl bg-stone-50/70 sm:min-h-[92px]" key={`empty-${index}`} />)}
         {Array.from({ length: days }).map((_, index) => {
@@ -847,19 +884,36 @@ function CalendarView({ month, propertyId, reservations, onNew, onEdit }: { mont
           const date = new Date(year, monthNumber - 1, day);
           const weekdayIndex = date.getDay();
           const weekday = ["Нд", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"][weekdayIndex];
-          const holiday = getBulgarianHoliday(monthNumber, day);
+          const holiday = getBulgarianHolidayInfo(iso);
           const dayTone = holiday
             ? "border-sky-200 bg-sky-50/80"
             : weekdayIndex === 5 || weekdayIndex === 6
               ? "border-amber-100 bg-amber-50/70"
               : "border-stone-200 bg-cream";
           return (
-            <div key={iso} className={`min-h-[88px] rounded-xl border p-1.5 shadow-sm sm:min-h-[108px] sm:p-2 ${dayTone}`} title={holiday?.label}>
+            <div
+              key={iso}
+              className={`min-h-[88px] rounded-xl border p-1.5 shadow-sm sm:min-h-[108px] sm:p-2 ${dayTone}`}
+              title={getHolidayTooltipText(holiday)}
+              tabIndex={holiday ? 0 : undefined}
+              onMouseEnter={() => {
+                if (holiday) setOpenHolidayDate(iso);
+              }}
+              onFocus={() => {
+                if (holiday) setOpenHolidayDate(iso);
+              }}
+              onClick={(event) => {
+                if (!holiday) return;
+                const target = event.target as HTMLElement;
+                if (target.closest("a,button,input,select,textarea")) return;
+                setOpenHolidayDate((current) => current === iso ? null : iso);
+              }}
+            >
               <div className="mb-1 flex items-center justify-between">
                 <span className="truncate text-[11px] font-black text-ink sm:text-sm"><span className="hidden sm:inline">{weekday}, </span>{day}</span>
                 <span className="rounded-full bg-white/80 px-1 text-[9px] font-black text-clay sm:px-1.5 sm:text-[10px]">{whole ? property.rooms.length : occupiedRooms(dayReservations)}/{property.rooms.length}</span>
               </div>
-              {holiday && <div className="mb-1 hidden truncate rounded-full bg-white/70 px-1.5 py-0.5 text-[10px] font-black text-sky-900 sm:block">{holiday.label}</div>}
+              {holiday && <div className="mb-1 hidden truncate rounded-full bg-white/70 px-1.5 py-0.5 text-[10px] font-black text-sky-900 sm:block">{holiday.holidayName}</div>}
               {whole ? (
                 <WholePropertyBlock
                   reservation={whole}
@@ -914,6 +968,33 @@ function RoomTile({ room, reservation, whole, href, onNew, onEdit }: { room: str
       {whole ? WHOLE_PROPERTY_LABEL : room}
     </a>
   );
+}
+
+function HolidayInfoBar({ holiday }: { holiday: BulgarianHolidayInfo | null }) {
+  return (
+    <div className="my-2 min-h-[44px] rounded-2xl border border-sky-100 bg-sky-50/70 px-3 py-2 text-sm font-semibold text-clay">
+      {holiday ? (
+        <p>
+          <span className="font-black text-sky-900">{formatHolidayDate(holiday.date)} - {holiday.holidayName}</span>
+          {holiday.leaveIdeaText && <span> · Идея за отпуск: {holiday.leaveIdeaText}</span>}
+        </p>
+      ) : (
+        <p className="text-sky-900/70">Посочи празничен ден, за да видиш идеи за отпуск.</p>
+      )}
+    </div>
+  );
+}
+
+function getHolidayTooltipText(holiday: BulgarianHolidayInfo | null): string | undefined {
+  if (!holiday) return undefined;
+  return holiday.leaveIdeaText
+    ? `${holiday.holidayName} · ${formatHolidayDate(holiday.date)} · ${holiday.leaveIdeaText}`
+    : `${holiday.holidayName} · ${formatHolidayDate(holiday.date)}`;
+}
+
+function formatHolidayDate(date: string): string {
+  const [, monthValue, dayValue] = date.split("-");
+  return `${Number(dayValue)}.${monthValue}`;
 }
 
 function WholePropertyBlock({ reservation, hasMixedReservations, href, onEdit }: { reservation: Reservation; hasMixedReservations: boolean; href: string; onEdit: (reservation: Reservation) => void }) {
@@ -1032,7 +1113,7 @@ function ReservationsView({ month, propertyId, reservations, query, setQuery, fi
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div>
                 <div className="text-xl font-black text-ink">{reservation.guestName || "Без име"}</div>
-                <div className="mt-1 text-base font-bold text-clay">{reservation.checkin} - {reservation.checkout}</div>
+                <div className="mt-1 text-base font-bold text-clay">{formatBulgarianDateRange(reservation.checkin, reservation.checkout)}</div>
                 <div className="mt-1 text-base font-medium text-clay">{propertyName(reservation.propertyId)} · {roomsLabel(reservation)}</div>
               </div>
               <span className={"w-fit rounded-full px-3 py-1.5 text-sm font-black " + (reservation.depositAmount > 0 ? "bg-emerald-100 text-emerald-900" : "bg-rose-100 text-rose-900")}>
@@ -1065,7 +1146,7 @@ function ReservationsView({ month, propertyId, reservations, query, setQuery, fi
   );
 }
 
-function TransactionsView({ data, month, setMonth, addRow, removeRow }: { data: AppData; month: string; setMonth: (value: string) => void; addRow: (kind: "income" | "expense", row: Omit<ManualIncome | Expense, "id" | "month">) => void; removeRow: (kind: "income" | "expense", id: string) => void }) {
+function TransactionsView({ data, month, setMonth, addRow, updateRow, removeRow }: { data: AppData; month: string; setMonth: (value: string) => void; addRow: (kind: "income" | "expense", row: Omit<ManualIncome | Expense, "id" | "month">) => void; updateRow: (kind: "income" | "expense", id: string, row: Omit<ManualIncome | Expense, "id" | "month">) => void; removeRow: (kind: "income" | "expense", id: string) => void }) {
   const incomes = Object.values(data.manualIncomes).filter((row) => row.month === month);
   const expenses = Object.values(data.expenses).filter((row) => row.month === month);
   const incomeTotal = sumAmounts(incomes.map((row) => row.amount));
@@ -1093,8 +1174,8 @@ function TransactionsView({ data, month, setMonth, addRow, removeRow }: { data: 
         </div>
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
-        <FinancePanel title="Ръчни приходи" kind="income" types={incomeTypes} rows={incomes} addRow={addRow} removeRow={removeRow} />
-        <FinancePanel title="Разходи" kind="expense" types={expenseTypes} rows={expenses} addRow={addRow} removeRow={removeRow} />
+        <FinancePanel title="Ръчни приходи" kind="income" types={incomeTypes} rows={incomes} addRow={addRow} updateRow={updateRow} removeRow={removeRow} />
+        <FinancePanel title="Разходи" kind="expense" types={expenseTypes} rows={expenses} addRow={addRow} updateRow={updateRow} removeRow={removeRow} />
       </div>
     </section>
   );
@@ -1281,12 +1362,40 @@ function YearToDateFinanceChart({ data, months, selectedMonth }: { data: AppData
   );
 }
 
-function FinancePanel({ title, kind, types, rows, addRow, removeRow }: { title: string; kind: "income" | "expense"; types: string[]; rows: Array<ManualIncome | Expense>; addRow: (kind: "income" | "expense", row: Omit<ManualIncome | Expense, "id" | "month">) => void; removeRow: (kind: "income" | "expense", id: string) => void }) {
+function FinancePanel({ title, kind, types, rows, addRow, updateRow, removeRow }: { title: string; kind: "income" | "expense"; types: string[]; rows: Array<ManualIncome | Expense>; addRow: (kind: "income" | "expense", row: Omit<ManualIncome | Expense, "id" | "month">) => void; updateRow: (kind: "income" | "expense", id: string, row: Omit<ManualIncome | Expense, "id" | "month">) => void; removeRow: (kind: "income" | "expense", id: string) => void }) {
   const [date, setDate] = useState(todayISO());
   const [type, setType] = useState(types[0]);
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [showList, setShowList] = useState(true);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  function clearFinanceForm() {
+    setAmount("");
+    setNote("");
+    setEditingId(null);
+  }
+
+  function submitFinanceRow() {
+    const row = { date, type, amount: Number(amount || 0), note };
+    if (editingId) {
+      debugClick("finance edit " + kind);
+      updateRow(kind, editingId, row);
+    } else {
+      debugClick("finance add " + kind);
+      addRow(kind, row);
+    }
+    clearFinanceForm();
+  }
+
+  function startEditing(row: ManualIncome | Expense) {
+    debugClick("finance start edit " + kind);
+    setEditingId(row.id);
+    setDate(row.date);
+    setType(row.type);
+    setAmount(String(row.amount || ""));
+    setNote(row.note || "");
+  }
 
   return (
     <div className="rounded-3xl border border-stone-200 bg-cream p-4 shadow-sm">
@@ -1301,27 +1410,35 @@ function FinancePanel({ title, kind, types, rows, addRow, removeRow }: { title: 
         <select className="tap-target rounded-2xl border border-stone-200 bg-white px-3 outline-none focus:ring-2 focus:ring-brand-100" value={type} onChange={(event) => setType(event.target.value)}>
           {types.map((item) => <option key={item}>{item}</option>)}
         </select>
-        <input className="tap-target rounded-2xl border border-stone-200 bg-white px-3 outline-none focus:ring-2 focus:ring-brand-100" inputMode="decimal" placeholder="Сума, EUR" value={amount} onChange={(event) => setAmount(event.target.value)} />
+        <input className="tap-target rounded-2xl border border-stone-200 bg-white px-3 outline-none focus:ring-2 focus:ring-brand-100" inputMode="decimal" placeholder="Сума, €" value={amount} onChange={(event) => setAmount(event.target.value)} />
         <input className="tap-target rounded-2xl border border-stone-200 bg-white px-3 outline-none focus:ring-2 focus:ring-brand-100" placeholder="Описание" value={note} onChange={(event) => setNote(event.target.value)} />
-        <Button type="button" className="tap-target rounded-2xl bg-brand-600 px-4 py-2 font-black text-white shadow-sm" onClick={() => {
-          debugClick("finance add " + kind);
-          addRow(kind, { date, type, amount: Number(amount || 0), note });
-          setAmount("");
-          setNote("");
-        }}>
-          Добави
-        </Button>
+        <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+          <Button type="button" className="tap-target rounded-2xl bg-brand-600 px-4 py-2 font-black text-white shadow-sm" onClick={submitFinanceRow}>
+            {editingId ? "Запази" : "Добави"}
+          </Button>
+          {editingId && (
+            <Button type="button" className="tap-target rounded-2xl border border-stone-200 bg-white px-4 py-2 font-black text-clay shadow-sm" onClick={clearFinanceForm}>
+              Отказ
+            </Button>
+          )}
+        </div>
       </div>
       {showList && (
         <div className="mt-3 grid gap-2">
           {rows.map((row) => (
-            <div key={row.id} className="flex items-center justify-between gap-2 rounded-2xl bg-white p-3 text-sm shadow-sm">
-              <span>{row.date} · {row.type} · {row.note || "—"}</span>
-              <span className="font-black">{eur(row.amount)}</span>
-              <Button type="button" className="tap-target rounded-full border border-stone-200 px-3 py-1 font-bold text-clay" onClick={() => {
-                debugClick("finance remove " + kind);
-                removeRow(kind, row.id);
-              }}>Махни</Button>
+            <div key={row.id} className="grid gap-3 rounded-2xl bg-white p-3 text-sm shadow-sm sm:grid-cols-[1fr_auto] sm:items-center">
+              <div>
+                <span className="block font-bold text-ink">{row.date} · {row.type}</span>
+                <span className="block text-clay">{row.note || "—"}</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                <span className="mr-auto font-black sm:mr-2">{eur(row.amount)}</span>
+                <Button type="button" className="tap-target rounded-full border border-stone-200 px-4 py-2 font-bold text-clay" onClick={() => startEditing(row)}>Едит</Button>
+                <Button type="button" className="tap-target rounded-full border border-stone-200 px-4 py-2 font-bold text-clay" onClick={() => {
+                  debugClick("finance remove " + kind);
+                  removeRow(kind, row.id);
+                }}>Махни</Button>
+              </div>
             </div>
           ))}
           {!rows.length && <p className="text-sm font-medium text-clay">Няма записи.</p>}
@@ -1406,10 +1523,10 @@ function ReservationModal({ draft, setDraft, closeHref, onClose, onSave, onDelet
         </FormSection>
         <FormSection title="Плащане">
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="font-bold">Капаро (EUR)
+            <label className="font-bold">Капаро (€)
               <input className="tap-target mt-1 w-full rounded-2xl border border-stone-200 bg-white px-3 outline-none focus:ring-2 focus:ring-brand-100" inputMode="decimal" value={draft.depositAmount || ""} onChange={(event) => setDraft({ ...draft, depositAmount: Number(event.target.value || 0) })} />
             </label>
-            <label className="font-bold">Общо (EUR)
+            <label className="font-bold">Общо (€)
               <input className="tap-target mt-1 w-full rounded-2xl border border-stone-200 bg-white px-3 outline-none focus:ring-2 focus:ring-brand-100" inputMode="decimal" value={draft.totalAmount || ""} onChange={(event) => setDraft({ ...draft, totalAmount: Number(event.target.value || 0) })} />
             </label>
           </div>
@@ -1432,7 +1549,7 @@ function ReservationModal({ draft, setDraft, closeHref, onClose, onSave, onDelet
 
 function Kpi({ label, value, danger = false }: { label: string; value: number; danger?: boolean }) {
   return (
-    <div className="rounded-3xl border border-stone-200 bg-cream p-4 shadow-sm">
+    <div className="rounded-3xl border border-stone-200 bg-cream p-4 text-center shadow-sm">
       <div className="text-sm font-bold text-clay">{label}</div>
       <div className={`text-xl font-black ${danger ? "text-rose-700" : "text-ink"}`}>{eurWhole(value)}</div>
     </div>
@@ -1441,7 +1558,7 @@ function Kpi({ label, value, danger = false }: { label: string; value: number; d
 
 function KpiText({ label, value, danger = false }: { label: string; value: string; danger?: boolean }) {
   return (
-    <div className="rounded-3xl border border-stone-200 bg-cream p-4 shadow-sm">
+    <div className="rounded-3xl border border-stone-200 bg-cream p-4 text-center shadow-sm">
       <div className="text-sm font-bold text-clay">{label}</div>
       <div className={`text-xl font-black ${danger ? "text-rose-700" : "text-ink"}`}>{value}</div>
     </div>
@@ -1459,26 +1576,6 @@ function FormSection({ title, children }: { title: string; children: ReactNode }
 
 function Legend({ color, label }: { color: string; label: string }) {
   return <span className="inline-flex items-center gap-1"><span className={`h-3 w-3 rounded border ${color}`} />{label}</span>;
-}
-
-const BULGARIAN_FIXED_HOLIDAYS: Record<string, string> = {
-  "01-01": "Нова година",
-  "03-03": "Освобождение",
-  "05-01": "Ден на труда",
-  "05-06": "Гергьовден",
-  "05-24": "24 май",
-  "09-06": "Съединение",
-  "09-22": "Независимост",
-  "12-24": "Бъдни вечер",
-  "12-25": "Коледа",
-  "12-26": "Коледа",
-};
-
-function getBulgarianHoliday(monthNumber: number, day: number): { label: string } | null {
-  // TODO: Add movable Easter holidays if/when a shared holiday utility is introduced.
-  const key = `${String(monthNumber).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-  const label = BULGARIAN_FIXED_HOLIDAYS[key];
-  return label ? { label } : null;
 }
 
 function propertyName(propertyId: PropertyId): string {
@@ -1636,7 +1733,13 @@ function sumAmounts(values: number[]): number {
 }
 
 function eurWhole(value: number): string {
-  return `${Math.round(Number(value || 0))} EUR`;
+  return `${formatWholeNumber(value)} €`;
+}
+
+function formatWholeNumber(value: number): string {
+  return new Intl.NumberFormat("bg-BG", {
+    maximumFractionDigits: 0
+  }).format(Math.round(Number(value || 0))).replace(/\u00a0/g, " ");
 }
 
 function formatPercent(value: number): string {
