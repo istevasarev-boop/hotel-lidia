@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  background: #faf7f1;
+  color: #2d2a26;
+  overflow-x: hidden;
+}
+
+html {
+  overflow-x: hidden;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button,
+a {
+  touch-action: manipulation;
+}
+
+button {
+  cursor: pointer;
+}
+
+.tap-target {
+  min-height: 48px;
+  min-width: 48px;
+}
+
+.control-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.control-wrap > button,
+.control-wrap > a {
+  flex: 1 1 8.5rem;
+}
+
+@media (max-width: 767px) {
+  .control-wrap > button,
+  .control-wrap > a {
+    flex-basis: calc(50% - 0.25rem);
+  }
+}
+
+.soft-card {
+  border: 1px solid rgba(120, 105, 85, 0.14);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 14px 34px rgba(79, 64, 43, 0.08);
+}

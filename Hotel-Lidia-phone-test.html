@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="bg">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hotel Lidia - телефонен тест</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: #f7f3ea;
+      color: #213547;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      padding: 20px;
+    }
+    main {
+      width: min(100%, 420px);
+      background: white;
+      border-radius: 24px;
+      box-shadow: 0 18px 48px rgba(44, 38, 28, 0.14);
+      padding: 24px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 28px;
+      line-height: 1.1;
+    }
+    p {
+      margin: 0 0 18px;
+      color: #6f665c;
+      font-size: 16px;
+      line-height: 1.45;
+    }
+    a {
+      display: flex;
+      min-height: 56px;
+      align-items: center;
+      justify-content: center;
+      border-radius: 18px;
+      background: #1f6fb2;
+      color: white;
+      text-decoration: none;
+      font-size: 18px;
+      font-weight: 800;
+    }
+    .hint {
+      margin-top: 18px;
+      font-size: 14px;
+    }
+    code {
+      display: block;
+      margin-top: 8px;
+      overflow-wrap: anywhere;
+      color: #1f6fb2;
+      font-weight: 800;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Hotel Lidia</h1>
+    <p>Телефонен тест. Компютърът трябва да е включен, а телефонът да е на същата Wi-Fi/мрежа.</p>
+    <a href="http://192.168.1.19:3000/?tab=calendar&property=villa">Отвори приложението</a>
+    <p class="hint">Ако бутонът не се отваря, пробвай ръчно този адрес в браузъра на телефона:
+      <code>http://192.168.1.19:3000</code>
+    </p>
+  </main>
+</body>
+</html>
