@@ -3,7 +3,7 @@
 import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { BarChart3, CalendarDays, ChevronLeft, ChevronRight, Download, Euro, Home, Plus, Search, Upload } from "lucide-react";
-import { BOOKING_ROOM_TYPES, BOOKING_TYPE_LABELS, getBookingTypeCapacity, getSafeBookingInventory, getSafeMaximumForBookingRange } from "@/domain/booking/availability";
+import { BOOKING_ROOM_TYPES, BOOKING_TYPE_LABELS, getSafeBookingInventory } from "@/domain/booking/availability";
 import { validateReservationConflict } from "@/domain/reservations/conflicts";
 import { activeOnDate, addDaysISO, eachNight, monthKey, normalizeCheckout, overlapsMonth, todayISO } from "@/domain/reservations/dateRange";
 import { normalizeImportedData } from "@/domain/reservations/legacyAdapter";
@@ -920,17 +920,12 @@ function CalendarView({
   const [year, monthNumber] = month.split("-").map(Number);
   const [openHolidayDate, setOpenHolidayDate] = useState<string | null>(null);
   const [bookingMode, setBookingMode] = useState(false);
-  const [bookingStart, setBookingStart] = useState(`${month}-01`);
-  const [bookingEnd, setBookingEnd] = useState(addDaysISO(`${month}-01`, 1));
-  const [pendingBookingAction, setPendingBookingAction] = useState<null | { bookingType: BookingTypeId; inventory: number }>(null);
+  const [showBookingFeeds, setShowBookingFeeds] = useState(false);
+  const [pendingBookingAction, setPendingBookingAction] = useState<null | { bookingType: BookingTypeId; date: string; inventory: number }>(null);
   const days = new Date(year, monthNumber, 0).getDate();
   const firstOffset = (new Date(year, monthNumber - 1, 1).getDay() + 6) % 7;
   const visibleReservations = reservations.filter((reservation) => reservation.propertyId === property.id && overlapsMonth(reservation.checkin, reservation.checkout, month));
   const activeHolidayInfo = openHolidayDate ? getBulgarianHolidayInfo(openHolidayDate) : null;
-  useEffect(() => {
-    setBookingStart(`${month}-01`);
-    setBookingEnd(addDaysISO(`${month}-01`, 1));
-  }, [month]);
 
   return (
     <section className="soft-card rounded-3xl p-2 sm:p-3">
@@ -954,16 +949,11 @@ function CalendarView({
         </div>
       </div>
       {bookingMode && (
-        <BookingModePanel
+        <BookingCalendarBar
           propertyId={property.id}
           data={data}
-          startDate={bookingStart}
-          endDate={bookingEnd}
-          setStartDate={setBookingStart}
-          setEndDate={setBookingEnd}
-          pendingAction={pendingBookingAction}
-          setPendingAction={setPendingBookingAction}
-          onSetBookingInventory={onSetBookingInventory}
+          showFeeds={showBookingFeeds}
+          setShowFeeds={setShowBookingFeeds}
           onEnsureBookingFeedTokens={onEnsureBookingFeedTokens}
         />
       )}
@@ -1011,7 +1001,14 @@ function CalendarView({
                 <span className="rounded-full bg-white/80 px-1 text-[9px] font-black text-clay sm:px-1.5 sm:text-[10px]">{whole ? property.rooms.length : occupiedRooms(dayReservations)}/{property.rooms.length}</span>
               </div>
               {holiday && <div className="mb-1 hidden truncate rounded-full bg-white/70 px-1.5 py-0.5 text-[10px] font-black text-sky-900 sm:block">{holiday.holidayName}</div>}
-              {bookingMode && <BookingDayBadges data={data} propertyId={property.id} date={iso} />}
+              {bookingMode && (
+                <BookingDayControls
+                  data={data}
+                  propertyId={property.id}
+                  date={iso}
+                  onSelect={(bookingType, inventory) => setPendingBookingAction({ bookingType, date: iso, inventory })}
+                />
+              )}
               {whole ? (
                 <WholePropertyBlock
                   reservation={whole}
@@ -1041,173 +1038,182 @@ function CalendarView({
           );
         })}
       </div>
+      {pendingBookingAction && (
+        <BookingInventoryConfirmModal
+          propertyId={property.id}
+          action={pendingBookingAction}
+          data={data}
+          onCancel={() => setPendingBookingAction(null)}
+          onConfirm={async () => {
+            await onSetBookingInventory(
+              property.id,
+              pendingBookingAction.bookingType,
+              pendingBookingAction.date,
+              addDaysISO(pendingBookingAction.date, 1),
+              pendingBookingAction.inventory
+            );
+            setPendingBookingAction(null);
+          }}
+        />
+      )}
     </section>
   );
 }
 
-function BookingModePanel({
+function BookingCalendarBar({
   propertyId,
   data,
-  startDate,
-  endDate,
-  setStartDate,
-  setEndDate,
-  pendingAction,
-  setPendingAction,
-  onSetBookingInventory,
+  showFeeds,
+  setShowFeeds,
   onEnsureBookingFeedTokens
 }: {
   propertyId: PropertyId;
   data: AppData;
-  startDate: string;
-  endDate: string;
-  setStartDate: (value: string) => void;
-  setEndDate: (value: string) => void;
-  pendingAction: null | { bookingType: BookingTypeId; inventory: number };
-  setPendingAction: (value: null | { bookingType: BookingTypeId; inventory: number }) => void;
-  onSetBookingInventory: (propertyId: PropertyId, bookingType: BookingTypeId, startDate: string, endDate: string, inventory: number) => Promise<void>;
+  showFeeds: boolean;
+  setShowFeeds: (value: boolean) => void;
   onEnsureBookingFeedTokens: () => Promise<void>;
 }) {
-  const property = PROPERTIES.find((item) => item.id === propertyId) || PROPERTIES[0];
-  const safeEndDate = normalizeCheckout(startDate, endDate);
-  const dates = eachNight(startDate, safeEndDate);
-  const nights = dates.length || 1;
   const [origin, setOrigin] = useState("");
 
   useEffect(() => {
     setOrigin(window.location.origin);
   }, []);
 
-  async function confirmAction() {
-    if (!pendingAction) return;
-    await onSetBookingInventory(propertyId, pendingAction.bookingType, startDate, safeEndDate, pendingAction.inventory);
-    setPendingAction(null);
-  }
+  const hasAllTokens = (Object.keys(BOOKING_ROOM_TYPES[propertyId]) as BookingTypeId[])
+    .every((bookingType) => Boolean(data.bookingFeedTokens?.[propertyId]?.[bookingType]));
 
   return (
     <div className="mb-3 rounded-2xl border border-sky-100 bg-sky-50/70 p-3">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h3 className="text-lg font-black text-sky-950">Booking.com inventory</h3>
-          <p className="text-sm font-semibold text-clay">Default: затворено. Резервациите винаги блокират Booking автоматично.</p>
+          <h3 className="text-base font-black text-sky-950">Booking от календара</h3>
+          <p className="text-sm font-semibold text-clay">Натисни SPA/Balcony в деня. Свободните бройки се смятат автоматично от резервациите.</p>
         </div>
-        <div className="grid gap-2 sm:grid-cols-2">
-          <label className="text-sm font-black text-clay">От
-            <input className="tap-target mt-1 w-full rounded-xl border border-sky-100 bg-white px-3" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
-          </label>
-          <label className="text-sm font-black text-clay">До
-            <input className="tap-target mt-1 w-full rounded-xl border border-sky-100 bg-white px-3" type="date" value={safeEndDate} onChange={(event) => setEndDate(event.target.value)} />
-          </label>
+        <div className="flex flex-wrap gap-2">
+          {!hasAllTokens && (
+            <Button type="button" className="tap-target rounded-xl bg-sky-700 px-3 py-2 font-black text-white" onClick={onEnsureBookingFeedTokens}>
+              Създай feed линкове
+            </Button>
+          )}
+          <Button type="button" className="tap-target rounded-xl border border-sky-200 bg-white px-3 py-2 font-black text-sky-900" onClick={() => setShowFeeds(!showFeeds)}>
+            {showFeeds ? "Скрий feed" : "Feed линкове"}
+          </Button>
         </div>
       </div>
-
-      <div className="mt-3 grid gap-3 lg:grid-cols-2">
-        {(Object.keys(BOOKING_ROOM_TYPES[propertyId]) as BookingTypeId[]).map((bookingType) => {
-          const capacity = getBookingTypeCapacity(propertyId, bookingType);
-          const maxSafe = getSafeMaximumForBookingRange(data, propertyId, bookingType, dates);
-          const currentValues = dates.map((date) => data.bookingOpenInventory?.[propertyId]?.[bookingType]?.[date] || 0);
-          const sameCurrent = currentValues.every((value) => value === currentValues[0]);
-          const token = data.bookingFeedTokens?.[propertyId]?.[bookingType];
-          const feedUrl = token && origin
-            ? `${origin}/api/ical/${propertyId}/${bookingType}?token=${token}`
-            : "";
-
-          return (
-            <div key={bookingType} className="rounded-2xl bg-white p-3 shadow-sm">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <p className="text-base font-black text-ink">{BOOKING_TYPE_LABELS[bookingType]}</p>
-                  <p className="text-sm font-semibold text-clay">Стаи: {BOOKING_ROOM_TYPES[propertyId][bookingType].join(", ")}</p>
-                  <p className="text-sm font-black text-sky-900">Максимално безопасно: {maxSafe}</p>
-                </div>
-                <span className="rounded-full bg-sky-100 px-3 py-1 text-sm font-black text-sky-900">
-                  {sameCurrent ? currentValues[0] || 0 : "mix"} / {capacity}
-                </span>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {Array.from({ length: capacity + 1 }, (_, value) => (
-                  <Button
-                    key={value}
-                    type="button"
-                    disabled={value > maxSafe}
-                    className={`tap-target min-w-11 rounded-xl px-4 py-2 font-black shadow-sm ${value > maxSafe ? "cursor-not-allowed bg-stone-100 text-stone-400" : value === 0 ? "border border-stone-200 bg-white text-clay" : "bg-brand-600 text-white"}`}
-                    onClick={() => setPendingAction({ bookingType, inventory: value })}
-                  >
-                    {value}
-                  </Button>
-                ))}
-              </div>
-              <div className="mt-3 rounded-xl bg-stone-50 p-2 text-xs font-semibold text-clay">
+      {showFeeds && (
+        <div className="mt-3 grid gap-2 lg:grid-cols-2">
+          {(Object.keys(BOOKING_ROOM_TYPES[propertyId]) as BookingTypeId[]).map((bookingType) => {
+            const token = data.bookingFeedTokens?.[propertyId]?.[bookingType];
+            const feedUrl = token && origin ? `${origin}/api/ical/${propertyId}/${bookingType}?token=${token}` : "";
+            return (
+              <div key={bookingType} className="rounded-xl bg-white p-2 text-xs font-semibold text-clay">
+                <div className="font-black text-ink">{BOOKING_TYPE_LABELS[bookingType]}</div>
                 {feedUrl ? (
-                  <div className="flex flex-col gap-2">
+                  <div className="mt-1 flex flex-col gap-2">
                     <span className="break-all">{feedUrl}</span>
                     <Button type="button" className="tap-target rounded-xl border border-stone-200 bg-white px-3 py-2 font-black text-clay" onClick={() => navigator.clipboard?.writeText(feedUrl).catch(() => undefined)}>
-                      Копирай feed линк
+                      Копирай
                     </Button>
                   </div>
                 ) : (
-                  <Button type="button" className="tap-target rounded-xl bg-sky-700 px-3 py-2 font-black text-white" onClick={onEnsureBookingFeedTokens}>
-                    Създай feed линкове
-                  </Button>
+                  <span>Няма token още.</span>
                 )}
               </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {pendingAction && (
-        <div className="fixed inset-0 z-50 flex items-end bg-stone-950/45 sm:items-center sm:justify-center">
-          <div className="w-full rounded-t-3xl bg-cream p-5 shadow-2xl sm:max-w-lg sm:rounded-3xl">
-            <h3 className="text-xl font-black text-ink">Сигурен ли си?</h3>
-            <p className="mt-2 text-base font-semibold text-clay">
-              {pendingAction.inventory > 0
-                ? "Сигурен ли си, че искаш да отвориш тази стая за Booking.com? Ако гост резервира през Booking.com, датата може да стане недостъпна за директна продажба."
-                : "Сигурен ли си, че искаш да затвориш тази стая за Booking.com?"}
-            </p>
-            {pendingAction.inventory > 0 && (
-              <p className="mt-2 text-sm font-semibold text-clay">Ако междувременно бъде добавена резервация в календара, тези дати автоматично ще се затворят за Booking.com.</p>
-            )}
-            <div className="mt-4 rounded-2xl bg-white p-4 text-sm font-bold text-stone-700">
-              <div>{property.name}</div>
-              <div>{BOOKING_TYPE_LABELS[pendingAction.bookingType]}</div>
-              <div>{startDate} - {safeEndDate}</div>
-              <div>{nights} нощувки</div>
-              <div>Inventory: {pendingAction.inventory}</div>
-            </div>
-            <div className="mt-5 grid gap-2 sm:grid-cols-2">
-              <Button type="button" className="tap-target rounded-2xl border border-stone-200 bg-white px-4 py-3 font-black text-clay" onClick={() => setPendingAction(null)}>
-                Отказ
-              </Button>
-              <Button type="button" className="tap-target rounded-2xl bg-brand-600 px-4 py-3 font-black text-white" onClick={() => void confirmAction()}>
-                {pendingAction.inventory > 0 ? "Отвори за Booking" : "Затвори за Booking"}
-              </Button>
-            </div>
-          </div>
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
 
-function BookingDayBadges({ data, propertyId, date }: { data: AppData; propertyId: PropertyId; date: string }) {
-  const activeBadges = (Object.keys(BOOKING_ROOM_TYPES[propertyId]) as BookingTypeId[])
-    .map((bookingType) => ({ bookingType, result: getSafeBookingInventory(data, propertyId, bookingType, date) }))
-    .filter(({ result }) => result.openedInventory > 0);
+function BookingDayControls({
+  data,
+  propertyId,
+  date,
+  onSelect
+}: {
+  data: AppData;
+  propertyId: PropertyId;
+  date: string;
+  onSelect: (bookingType: BookingTypeId, inventory: number) => void;
+}) {
+  return (
+    <div className="mb-1 grid gap-1">
+      {(Object.keys(BOOKING_ROOM_TYPES[propertyId]) as BookingTypeId[]).map((bookingType) => {
+        const result = getSafeBookingInventory(data, propertyId, bookingType, date);
+        return (
+          <div key={bookingType} className="rounded-lg border border-sky-100 bg-white/80 p-1">
+            <div className="mb-1 flex items-center justify-between gap-1">
+              <span className="truncate text-[9px] font-black text-sky-950 sm:text-[10px]">{BOOKING_TYPE_LABELS[bookingType]}</span>
+              <span className="text-[9px] font-black text-clay sm:text-[10px]">{result.safeInventory}/{result.physicallyFreeInventory}</span>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {Array.from({ length: result.physicallyFreeInventory + 1 }, (_, inventory) => (
+                <Button
+                  key={inventory}
+                  type="button"
+                  className={`min-h-6 min-w-6 rounded-md px-1 text-[10px] font-black sm:min-h-7 sm:min-w-7 ${inventory === result.openedInventory ? "bg-sky-700 text-white" : "border border-sky-100 bg-white text-sky-900"}`}
+                  title={`Booking ${BOOKING_TYPE_LABELS[bookingType]}: ${inventory}`}
+                  onClick={() => onSelect(bookingType, inventory)}
+                >
+                  {inventory}
+                </Button>
+              ))}
+            </div>
+            {result.openedInventory > result.safeInventory && (
+              <p className="mt-1 text-[9px] font-black text-rose-700">има резервация</p>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
-  if (!activeBadges.length) return null;
+function BookingInventoryConfirmModal({
+  propertyId,
+  action,
+  data,
+  onCancel,
+  onConfirm
+}: {
+  propertyId: PropertyId;
+  action: { bookingType: BookingTypeId; date: string; inventory: number };
+  data: AppData;
+  onCancel: () => void;
+  onConfirm: () => Promise<void>;
+}) {
+  const property = PROPERTIES.find((item) => item.id === propertyId) || PROPERTIES[0];
+  const result = getSafeBookingInventory(data, propertyId, action.bookingType, action.date);
+  const finalSafe = Math.min(action.inventory, result.physicallyFreeInventory);
 
   return (
-    <div className="mb-1 flex flex-wrap gap-1">
-      {activeBadges.map(({ bookingType, result }) => (
-        <span
-          key={bookingType}
-          className={`rounded-full px-1.5 py-0.5 text-[9px] font-black sm:text-[10px] ${result.safeInventory > 0 ? "bg-sky-100 text-sky-900" : "bg-stone-200 text-stone-600"}`}
-          title={result.safeInventory > 0 ? `Booking: ${result.safeInventory}` : "Booking затворен — има резервация"}
-        >
-          B {BOOKING_TYPE_LABELS[bookingType]} {result.safeInventory}
-        </span>
-      ))}
+    <div className="fixed inset-0 z-50 flex items-end bg-stone-950/45 sm:items-center sm:justify-center">
+      <div className="w-full rounded-t-3xl bg-cream p-5 shadow-2xl sm:max-w-lg sm:rounded-3xl">
+        <h3 className="text-xl font-black text-ink">Сигурен ли си?</h3>
+        <p className="mt-2 text-base font-semibold text-clay">
+          {action.inventory > 0
+            ? "Отваряш част от свободния остатък за Booking.com. Ако бъде добавена резервация, Booking автоматично ще се блокира."
+            : "Затваряш този тип за Booking.com за избрания ден."}
+        </p>
+        <div className="mt-4 rounded-2xl bg-white p-4 text-sm font-bold text-stone-700">
+          <div>{property.name}</div>
+          <div>{BOOKING_TYPE_LABELS[action.bookingType]}</div>
+          <div>{action.date}</div>
+          <div>Физически свободни: {result.physicallyFreeInventory}</div>
+          <div>Ще отвориш: {action.inventory}</div>
+          <div>Безопасно към Booking: {finalSafe}</div>
+        </div>
+        <div className="mt-5 grid gap-2 sm:grid-cols-2">
+          <Button type="button" className="tap-target rounded-2xl border border-stone-200 bg-white px-4 py-3 font-black text-clay" onClick={onCancel}>
+            Отказ
+          </Button>
+          <Button type="button" className="tap-target rounded-2xl bg-brand-600 px-4 py-3 font-black text-white" onClick={() => void onConfirm()}>
+            {action.inventory > 0 ? "Отвори за Booking" : "Затвори за Booking"}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

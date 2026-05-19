@@ -117,7 +117,7 @@ After deploying to HTTPS on Vercel, open the site on the phone and use:
 
 ## Booking.com iCal Availability MVP
 
-Booking.com availability is controlled with secret iCal feeds per Booking.com room type, not per internal room.
+Booking.com availability is derived from the normal Hotel Lidia calendar. The calendar remains the operational source of truth: reservations decide physical occupancy, and the Booking layer only stores how much of the remaining safe inventory the owner intentionally opens to Booking.com.
 
 Mapping:
 
@@ -131,7 +131,8 @@ Rules:
 
 - Closed by default. Missing inventory means blocked on Booking.com.
 - Reservations always win. A direct reservation or whole-property reservation automatically blocks Booking.com availability.
-- The app stores only explicitly opened inventory in `bookingOpenInventory`.
+- The app calculates physical free rooms from reservations, then clamps opened inventory with `safeInventory = min(openedInventory, physicalFreeInventory)`.
+- The app stores only the explicit intent to open inventory in `bookingOpenInventory`; it does not duplicate room occupancy.
 - Feed URLs use long random tokens stored in `bookingFeedTokens`.
 
 Feeds:
