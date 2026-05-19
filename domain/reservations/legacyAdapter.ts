@@ -7,7 +7,9 @@ export function normalizeImportedData(input: unknown): AppData {
       schemaVersion: 2,
       reservations: input.reservations || {},
       manualIncomes: input.manualIncomes || {},
-      expenses: input.expenses || {}
+      expenses: input.expenses || {},
+      bookingOpenInventory: input.bookingOpenInventory || {},
+      bookingFeedTokens: input.bookingFeedTokens || {}
     };
   }
 
@@ -16,6 +18,8 @@ export function normalizeImportedData(input: unknown): AppData {
 
 export function legacyToV2(legacy: LegacyData): AppData {
   const data: AppData = createEmptyData();
+  data.bookingOpenInventory = legacy.bookingOpenInventory || {};
+  data.bookingFeedTokens = legacy.bookingFeedTokens || {};
   const masters = Object.keys(legacy.reservationMasters || {}).length
     ? legacy.reservationMasters || {}
     : buildMastersFromLegacyRows(legacy);
@@ -80,7 +84,9 @@ export function v2ToLegacy(data: AppData): LegacyData {
   const legacy: LegacyData = {
     finances: { incomes: {}, expenses: {} },
     reservations: { villa: {}, house: {} },
-    reservationMasters: {}
+    reservationMasters: {},
+    bookingOpenInventory: data.bookingOpenInventory || {},
+    bookingFeedTokens: data.bookingFeedTokens || {}
   };
 
   Object.values(data.reservations).forEach((reservation) => {

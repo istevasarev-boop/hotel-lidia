@@ -109,6 +109,8 @@ export async function restoreBackup(id: string, createdBy?: string): Promise<App
     set(ref(services.db, `${DB_PATH}/reservationMasters`), data.reservationMasters || {}),
     set(ref(services.db, `${DB_PATH}/reservations`), data.reservations || { villa: {}, house: {} }),
     set(ref(services.db, `${DB_PATH}/finances`), data.finances || { incomes: {}, expenses: {} }),
+    set(ref(services.db, `${DB_PATH}/bookingOpenInventory`), data.bookingOpenInventory || {}),
+    set(ref(services.db, `${DB_PATH}/bookingFeedTokens`), data.bookingFeedTokens || {}),
     data.settings !== undefined ? set(ref(services.db, `${DB_PATH}/settings`), data.settings) : Promise.resolve()
   ]);
 
@@ -171,6 +173,8 @@ function pickKnownPaths(data: LegacyData & { settings?: unknown }): LegacyData &
     reservationMasters: data.reservationMasters || {},
     reservations: data.reservations || { villa: {}, house: {} },
     finances: data.finances || { incomes: {}, expenses: {} },
+    bookingOpenInventory: data.bookingOpenInventory || {},
+    bookingFeedTokens: data.bookingFeedTokens || {},
     ...(data.settings ? { settings: data.settings } : {})
   };
 }

@@ -1,4 +1,5 @@
 export type PropertyId = "villa" | "house";
+export type BookingTypeId = "spa" | "balcony";
 export type ReservationStatus = "pending" | "deposit_paid" | "paid" | "cancelled";
 export type RoomId = string;
 
@@ -42,11 +43,16 @@ export type Expense = {
   note: string;
 };
 
+export type BookingOpenInventory = Partial<Record<PropertyId, Partial<Record<BookingTypeId, Record<string, number>>>>>;
+export type BookingFeedTokens = Partial<Record<PropertyId, Partial<Record<BookingTypeId, string>>>>;
+
 export type AppData = {
   schemaVersion: 2;
   reservations: Record<string, Reservation>;
   manualIncomes: Record<string, ManualIncome>;
   expenses: Record<string, Expense>;
+  bookingOpenInventory: BookingOpenInventory;
+  bookingFeedTokens: BookingFeedTokens;
 };
 
 export type LegacyData = {
@@ -56,6 +62,8 @@ export type LegacyData = {
   };
   reservations?: Record<string, Record<string, Array<Record<string, unknown>>>>;
   reservationMasters?: Record<string, Record<string, unknown>>;
+  bookingOpenInventory?: BookingOpenInventory;
+  bookingFeedTokens?: BookingFeedTokens;
 };
 
 export const PROPERTIES: PropertyConfig[] = [
@@ -67,7 +75,9 @@ export const EMPTY_DATA: AppData = {
   schemaVersion: 2,
   reservations: {},
   manualIncomes: {},
-  expenses: {}
+  expenses: {},
+  bookingOpenInventory: {},
+  bookingFeedTokens: {}
 };
 
 export function createEmptyData(): AppData {
@@ -75,6 +85,8 @@ export function createEmptyData(): AppData {
     schemaVersion: 2,
     reservations: {},
     manualIncomes: {},
-    expenses: {}
+    expenses: {},
+    bookingOpenInventory: {},
+    bookingFeedTokens: {}
   };
 }

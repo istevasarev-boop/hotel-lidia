@@ -115,6 +115,44 @@ After deploying to HTTPS on Vercel, open the site on the phone and use:
 - iPhone Safari: Share -> Add to Home Screen
 - Android Chrome: Install app / Add to Home screen
 
+## Booking.com iCal Availability MVP
+
+Booking.com availability is controlled with secret iCal feeds per Booking.com room type, not per internal room.
+
+Mapping:
+
+- Villa SPA: rooms `5`, `9`, `10`
+- Villa Balcony: rooms `7`, `8`, `11`
+- House SPA: rooms `1`, `3`
+- House Balcony: rooms `2`, `4`
+- Room `6` is direct-sale only and is excluded from Booking.com.
+
+Rules:
+
+- Closed by default. Missing inventory means blocked on Booking.com.
+- Reservations always win. A direct reservation or whole-property reservation automatically blocks Booking.com availability.
+- The app stores only explicitly opened inventory in `bookingOpenInventory`.
+- Feed URLs use long random tokens stored in `bookingFeedTokens`.
+
+Feeds:
+
+```txt
+/api/ical/villa/spa?token=...
+/api/ical/villa/balcony?token=...
+/api/ical/house/spa?token=...
+/api/ical/house/balcony?token=...
+```
+
+Booking.com imports iCal as blocked/unblocked dates. Standard iCal does not reliably express a changing inventory count for one room type, so this MVP safely blocks a type only when the safe inventory is `0`. If exact inventory counts must be pushed to Booking.com, use a certified channel manager or the Booking.com Connectivity API.
+
+Booking.com setup:
+
+1. Open Booking.com Extranet.
+2. Go to `Calendar & Pricing` -> `Sync calendars`.
+3. Add an iCal connection for each Booking.com room type.
+4. Paste the matching feed URL from Calendar -> Booking mode.
+5. Wait for Booking.com to refresh the feed. iCal sync is not instant and Booking.com controls refresh timing.
+
 ## Tests
 
 ```bash
