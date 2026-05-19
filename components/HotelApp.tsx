@@ -20,6 +20,7 @@ import type { User } from "firebase/auth";
 type Tab = "upcoming" | "calendar" | "transactions" | "finance";
 type ListFilter = "all" | "today" | "next7" | "month" | "noDeposit";
 type ReservationDraft = Omit<Reservation, "id" | "createdAt" | "updatedAt" | "status"> & { id?: string };
+const WHOLE_PROPERTY_LABEL = "цялата";
 
 function debugClick(action: string) {
   if (process.env.NODE_ENV !== "production") {
@@ -242,7 +243,7 @@ export function HotelApp({
     };
 
     if (!reservation.rooms.length) {
-      window.alert("Изберете стая/и или all.");
+      window.alert(`Изберете стая/и или ${WHOLE_PROPERTY_LABEL}.`);
       return;
     }
     if (!reservation.checkin) {
@@ -708,10 +709,18 @@ function ReservationCard({ reservation, onEdit }: { reservation: Reservation; on
           {reservation.depositAmount > 0 ? "Има капаро" : "Без капаро"}
         </span>
       </div>
-      <div className="mt-4 grid gap-2 text-base font-semibold text-stone-700 sm:grid-cols-3">
+      <div className="mt-4 grid gap-2 text-base font-semibold text-stone-700 sm:grid-cols-[1fr_auto_auto] sm:items-center">
         <span><PhoneLink phone={reservation.phone} /></span>
-        <span>Общо: {eur(reservation.totalAmount)}</span>
-        <span>Остатък: {eur(reservationBalance(reservation))}</span>
+        <div className="grid grid-cols-2 gap-2 sm:contents">
+          <span className="rounded-2xl bg-white px-3 py-2 shadow-sm ring-1 ring-stone-200 sm:min-w-28">
+            <span className="block text-xs font-black uppercase text-clay">Общо</span>
+            <span className="text-lg font-black text-ink sm:text-base">{eur(reservation.totalAmount)}</span>
+          </span>
+          <span className="rounded-2xl bg-white px-3 py-2 shadow-sm ring-1 ring-stone-200 sm:min-w-28">
+            <span className="block text-xs font-black uppercase text-clay">Остатък</span>
+            <span className="text-lg font-black text-rose-800 sm:text-base">{eur(reservationBalance(reservation))}</span>
+          </span>
+        </div>
       </div>
       {reservation.notes && <p className="mt-3 text-base font-medium text-clay">{reservation.notes}</p>}
       <a href={`/?tab=upcoming&property=${reservation.propertyId}&edit=${reservation.id}`} className="tap-target mt-4 inline-flex w-full items-center justify-center rounded-2xl bg-brand-600 px-4 py-3 text-base font-black text-white shadow-sm sm:w-auto" onClick={(event) => {
@@ -822,7 +831,7 @@ function CalendarView({ month, propertyId, reservations, onNew, onEdit }: { mont
           <Legend color="bg-stone-100 border-stone-200" label="Свободна" />
           <Legend color="bg-emerald-100 border-emerald-300" label="Има капаро" />
           <Legend color="bg-rose-100 border-rose-300" label="Без капаро" />
-          <Legend color="bg-red-500 border-red-600" label="all" />
+          <Legend color="bg-red-500 border-red-600" label={WHOLE_PROPERTY_LABEL} />
         </div>
       </div>
       <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-black text-slate-500 sm:text-xs">
@@ -851,23 +860,31 @@ function CalendarView({ month, propertyId, reservations, onNew, onEdit }: { mont
                 <span className="rounded-full bg-white/80 px-1 text-[9px] font-black text-clay sm:px-1.5 sm:text-[10px]">{whole ? property.rooms.length : occupiedRooms(dayReservations)}/{property.rooms.length}</span>
               </div>
               {holiday && <div className="mb-1 hidden truncate rounded-full bg-white/70 px-1.5 py-0.5 text-[10px] font-black text-sky-900 sm:block">{holiday.label}</div>}
-              <div className="grid grid-cols-2 gap-0.5 sm:gap-1">
-                {property.rooms.map((room) => {
-                  const reservation = whole || dayReservations.find((item) => item.rooms.map(String).includes(room));
-                  return (
-                    <RoomTile
-                      key={room}
-                      room={room}
-                      reservation={reservation}
-                      whole={Boolean(whole)}
-                      href={reservation ? `/?tab=calendar&property=${property.id}&edit=${reservation.id}` : `/?tab=calendar&property=${property.id}&new=1&date=${iso}&room=${room}`}
-                      onNew={() => onNew(property.id, iso, room)}
-                      onEdit={onEdit}
-                    />
-                  );
-                })}
-                <RoomTile room="all" reservation={whole} whole href={whole ? `/?tab=calendar&property=${property.id}&edit=${whole.id}` : `/?tab=calendar&property=${property.id}&new=1&date=${iso}&room=all`} onNew={() => onNew(property.id, iso, "all")} onEdit={onEdit} />
-              </div>
+              {whole ? (
+                <WholePropertyBlock
+                  reservation={whole}
+                  hasMixedReservations={dayReservations.some((reservation) => !reservation.rooms.includes("all"))}
+                  href={`/?tab=calendar&property=${property.id}&edit=${whole.id}`}
+                  onEdit={onEdit}
+                />
+              ) : (
+                <div className="grid grid-cols-2 gap-0.5 sm:gap-1">
+                  {property.rooms.map((room) => {
+                    const reservation = dayReservations.find((item) => item.rooms.map(String).includes(room));
+                    return (
+                      <RoomTile
+                        key={room}
+                        room={room}
+                        reservation={reservation}
+                        href={reservation ? `/?tab=calendar&property=${property.id}&edit=${reservation.id}` : `/?tab=calendar&property=${property.id}&new=1&date=${iso}&room=${room}`}
+                        onNew={() => onNew(property.id, iso, room)}
+                        onEdit={onEdit}
+                      />
+                    );
+                  })}
+                  <RoomTile room="all" reservation={undefined} whole href={`/?tab=calendar&property=${property.id}&new=1&date=${iso}&room=all`} onNew={() => onNew(property.id, iso, "all")} onEdit={onEdit} />
+                </div>
+              )}
             </div>
           );
         })}
@@ -894,7 +911,32 @@ function RoomTile({ room, reservation, whole, href, onNew, onEdit }: { room: str
       if (reservation) onEdit(reservation);
       else onNew();
     }}>
-      {whole && reservation?.rooms.includes("all") ? "all" : room}
+      {whole ? WHOLE_PROPERTY_LABEL : room}
+    </a>
+  );
+}
+
+function WholePropertyBlock({ reservation, hasMixedReservations, href, onEdit }: { reservation: Reservation; hasMixedReservations: boolean; href: string; onEdit: (reservation: Reservation) => void }) {
+  const color = reservation.depositAmount > 0
+    ? "border-emerald-300 bg-emerald-100 text-emerald-950"
+    : "border-rose-300 bg-rose-100 text-rose-950";
+
+  return (
+    <a
+      href={href}
+      className={`block min-h-6 rounded-lg border px-2 py-1 text-center text-[11px] font-black leading-tight shadow-sm transition hover:-translate-y-0.5 hover:shadow sm:min-h-7 sm:text-xs ${color}`}
+      title={`${reservation.guestName || "Без име"} ${reservation.checkin} - ${reservation.checkout}`}
+      onClick={(event) => {
+        event.preventDefault();
+        debugClick("calendar edit whole block");
+        window.history.replaceState(null, "", href);
+        onEdit(reservation);
+      }}
+    >
+      <span className="inline-flex items-center justify-center gap-1">
+        {WHOLE_PROPERTY_LABEL}
+        {hasMixedReservations && <span className="rounded-full bg-white/75 px-1 text-[9px] font-black text-rose-800" title="Има и записи по стаи">!</span>}
+      </span>
     </a>
   );
 }
@@ -905,7 +947,7 @@ function ReservationsView({ month, propertyId, reservations, query, setQuery, fi
   const property = PROPERTIES.find((item) => item.id === propertyId) || PROPERTIES[0];
   const [roomFilter, setRoomFilter] = useState<RoomId | "all" | "">("");
   const filterItems: Array<[ListFilter, string]> = [["all", "Всички"], ["today", "Днес"], ["next7", "7 дни"], ["month", "Месец"], ["noDeposit", "Без капаро"]];
-  const roomItems: Array<[RoomId | "all" | "", string]> = [["", "Всички стаи"], ...property.rooms.map((room): [RoomId, string] => [room, "Стая " + room]), ["all", "all"]];
+  const roomItems: Array<[RoomId | "all" | "", string]> = [["", "Всички стаи"], ...property.rooms.map((room): [RoomId, string] => [room, "Стая " + room]), ["all", WHOLE_PROPERTY_LABEL]];
   const filtered = reservations.filter((reservation) => {
     if (reservation.propertyId !== propertyId) return false;
     if (reservation.checkout <= today) return false;
@@ -997,10 +1039,18 @@ function ReservationsView({ month, propertyId, reservations, query, setQuery, fi
                 {reservation.depositAmount > 0 ? "Има капаро" : "Без капаро"}
               </span>
             </div>
-            <div className="mt-4 grid gap-2 text-base font-semibold text-stone-700 md:grid-cols-3">
+            <div className="mt-4 grid gap-2 text-base font-semibold text-stone-700 md:grid-cols-[1fr_auto_auto] md:items-center">
               <span><PhoneLink phone={reservation.phone} /></span>
-              <span>Общо: {eur(reservation.totalAmount)}</span>
-              <span>Остатък: {eur(reservationBalance(reservation))}</span>
+              <div className="grid grid-cols-2 gap-2 md:contents">
+                <span className="rounded-2xl bg-white px-3 py-2 shadow-sm ring-1 ring-stone-200 md:min-w-28">
+                  <span className="block text-xs font-black uppercase text-clay">Общо</span>
+                  <span className="text-lg font-black text-ink md:text-base">{eur(reservation.totalAmount)}</span>
+                </span>
+                <span className="rounded-2xl bg-white px-3 py-2 shadow-sm ring-1 ring-stone-200 md:min-w-28">
+                  <span className="block text-xs font-black uppercase text-clay">Остатък</span>
+                  <span className="text-lg font-black text-rose-800 md:text-base">{eur(reservationBalance(reservation))}</span>
+                </span>
+              </div>
             </div>
             {reservation.notes && <p className="mt-3 text-base font-medium text-clay">{reservation.notes}</p>}
             <a href={`/?tab=upcoming&property=${reservation.propertyId}&edit=${reservation.id}`} className="tap-target mt-4 inline-flex w-full items-center justify-center rounded-2xl bg-brand-600 px-5 py-3 text-base font-black text-white shadow-sm md:w-auto" onClick={(event) => {
@@ -1336,7 +1386,7 @@ function ReservationModal({ draft, setDraft, closeHref, onClose, onSave, onDelet
         <FormSection title="Стаи">
           <p className="mb-2 text-sm font-semibold text-clay">Може да избереш повече от една стая. Избраните стаи са оцветени в синьо.</p>
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
-            <Button type="button" className={`tap-target rounded-full border px-3 py-2 font-black ${draft.rooms.includes("all") ? "border-red-600 bg-red-500 text-white" : "border-stone-200 bg-white text-stone-700"}`} onClick={() => toggleRoom("all")}>all</Button>
+            <Button type="button" className={`tap-target rounded-full border px-3 py-2 font-black ${draft.rooms.includes("all") ? "border-red-600 bg-red-500 text-white" : "border-stone-200 bg-white text-stone-700"}`} onClick={() => toggleRoom("all")}>{WHOLE_PROPERTY_LABEL}</Button>
             {property.rooms.map((room) => (
               <Button type="button" key={room} className={`tap-target rounded-full border px-3 py-2 font-black ${draft.rooms.map(String).includes(room) ? "border-brand-700 bg-brand-600 text-white" : "border-stone-200 bg-white text-stone-700"}`} onClick={() => toggleRoom(room)}>
                 {room}
@@ -1440,7 +1490,7 @@ function occupiedRooms(reservations: Reservation[]): number {
 }
 
 function roomsLabel(reservation: Reservation): string {
-  return reservation.rooms.includes("all") ? "all" : "Стаи " + reservation.rooms.join(", ");
+  return reservation.rooms.includes("all") ? WHOLE_PROPERTY_LABEL : "Стаи " + reservation.rooms.join(", ");
 }
 
 function PhoneLink({ phone }: { phone: string }) {
@@ -1604,5 +1654,5 @@ function occupiedSummary(reservations: Reservation[]): string {
       .forEach((reservation) => reservation.rooms.forEach((room) => rooms.add(String(room))));
     return rooms.size ? `${property.name}: ${Array.from(rooms).sort((a, b) => Number(a) - Number(b)).join(", ")}` : "";
   }).filter(Boolean);
-  return [...whole.map((name) => `${name}: all`), ...roomsByProperty].join(" · ");
+  return [...whole.map((name) => `${name}: ${WHOLE_PROPERTY_LABEL}`), ...roomsByProperty].join(" · ");
 }
