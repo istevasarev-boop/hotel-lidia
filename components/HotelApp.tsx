@@ -24,6 +24,7 @@ type Tab = "upcoming" | "calendar" | "transactions" | "finance";
 type ListFilter = "all" | "today" | "next7" | "month" | "noDeposit";
 type ReservationDraft = Omit<Reservation, "id" | "createdAt" | "updatedAt" | "status"> & { id?: string };
 const WHOLE_PROPERTY_LABEL = "цялата";
+const ENABLE_BOOKING_MODE = false;
 
 function debugClick(action: string) {
   if (process.env.NODE_ENV !== "production") {
@@ -506,8 +507,8 @@ export function HotelApp({
             reservations={reservations}
             onNew={openNewReservation}
             onEdit={openEditReservation}
-            onSetBookingInventory={setBookingInventory}
-            onEnsureBookingFeedTokens={ensureBookingFeedTokens}
+            onSetBookingInventory={ENABLE_BOOKING_MODE ? setBookingInventory : undefined}
+            onEnsureBookingFeedTokens={ENABLE_BOOKING_MODE ? ensureBookingFeedTokens : undefined}
           />
         </div>
       )}
@@ -913,8 +914,8 @@ function CalendarView({
   reservations: Reservation[];
   onNew: (propertyId: PropertyId, isoDate: string, room?: RoomId | "all") => void;
   onEdit: (reservation: Reservation) => void;
-  onSetBookingInventory: (propertyId: PropertyId, bookingType: BookingTypeId, startDate: string, endDate: string, inventory: number) => Promise<void>;
-  onEnsureBookingFeedTokens: () => Promise<void>;
+  onSetBookingInventory?: (propertyId: PropertyId, bookingType: BookingTypeId, startDate: string, endDate: string, inventory: number) => Promise<void>;
+  onEnsureBookingFeedTokens?: () => Promise<void>;
 }) {
   const property = PROPERTIES.find((item) => item.id === propertyId) || PROPERTIES[0];
   const [year, monthNumber] = month.split("-").map(Number);
@@ -939,16 +940,18 @@ function CalendarView({
           <Legend color="bg-emerald-100 border-emerald-300" label="Има капаро" />
           <Legend color="bg-rose-100 border-rose-300" label="Без капаро" />
           <Legend color="bg-red-500 border-red-600" label={WHOLE_PROPERTY_LABEL} />
-          <Button
-            type="button"
-            className={`tap-target rounded-xl px-3 py-2 font-black shadow-sm ${bookingMode ? "bg-sky-700 text-white" : "border border-sky-200 bg-white text-sky-800"}`}
-            onClick={() => setBookingMode((value) => !value)}
-          >
-            Booking mode
-          </Button>
+          {ENABLE_BOOKING_MODE && (
+            <Button
+              type="button"
+              className={`tap-target rounded-xl px-3 py-2 font-black shadow-sm ${bookingMode ? "bg-sky-700 text-white" : "border border-sky-200 bg-white text-sky-800"}`}
+              onClick={() => setBookingMode((value) => !value)}
+            >
+              Booking mode
+            </Button>
+          )}
         </div>
       </div>
-      {bookingMode && (
+      {ENABLE_BOOKING_MODE && bookingMode && onEnsureBookingFeedTokens && (
         <BookingCalendarBar
           propertyId={property.id}
           data={data}
@@ -1001,7 +1004,7 @@ function CalendarView({
                 <span className="rounded-full bg-white/80 px-1 text-[9px] font-black text-clay sm:px-1.5 sm:text-[10px]">{whole ? property.rooms.length : occupiedRooms(dayReservations)}/{property.rooms.length}</span>
               </div>
               {holiday && <div className="mb-1 hidden truncate rounded-full bg-white/70 px-1.5 py-0.5 text-[10px] font-black text-sky-900 sm:block">{holiday.holidayName}</div>}
-              {bookingMode && (
+              {ENABLE_BOOKING_MODE && bookingMode && (
                 <BookingDayControls
                   data={data}
                   propertyId={property.id}
@@ -1038,7 +1041,7 @@ function CalendarView({
           );
         })}
       </div>
-      {pendingBookingAction && (
+      {ENABLE_BOOKING_MODE && pendingBookingAction && onSetBookingInventory && (
         <BookingInventoryConfirmModal
           propertyId={property.id}
           action={pendingBookingAction}
