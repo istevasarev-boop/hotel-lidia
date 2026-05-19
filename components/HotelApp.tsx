@@ -392,10 +392,10 @@ export function HotelApp({
         </div>
       </header>
 
-      {tab !== "upcoming" && <div className="hidden md:block">
+      {tab === "calendar" && <div className="hidden md:block">
         <PropertySwitch value={activeProperty} onChange={setActiveProperty} />
       </div>}
-      {tab !== "upcoming" && <div className="md:hidden">
+      {tab === "calendar" && <div className="md:hidden">
         <MobilePropertySwitch value={activeProperty} onChange={setActiveProperty} tab={tab} />
       </div>}
 
