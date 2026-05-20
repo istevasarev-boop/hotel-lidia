@@ -1321,8 +1321,10 @@ function ReservationsView({ month, propertyId, reservations, query, setQuery, fi
   const today = todayISO();
   const property = PROPERTIES.find((item) => item.id === propertyId) || PROPERTIES[0];
   const [roomFilter, setRoomFilter] = useState<RoomId | "all" | "">("");
+  const [isExpanded, setIsExpanded] = useState(false);
   const filterItems: Array<[ListFilter, string]> = [["all", "Всички"], ["today", "Днес"], ["next7", "7 дни"], ["month", "Месец"], ["noDeposit", "Без капаро"]];
   const roomItems: Array<[RoomId | "all" | "", string]> = [["", "Всички стаи"], ...property.rooms.map((room): [RoomId, string] => [room, "Стая " + room]), ["all", WHOLE_PROPERTY_LABEL]];
+  const activeCount = reservations.filter((reservation) => reservation.propertyId === propertyId && reservation.checkout > today).length;
   const filtered = reservations.filter((reservation) => {
     if (reservation.propertyId !== propertyId) return false;
     if (reservation.checkout <= today) return false;
@@ -1383,59 +1385,69 @@ function ReservationsView({ month, propertyId, reservations, query, setQuery, fi
       <div className="mb-4 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
           <h2 className="text-2xl font-black text-ink">Всички резервации</h2>
-          <p className="text-base font-medium text-clay">{property.name} · {filtered.length} активни записа</p>
+          <p className="text-base font-medium text-clay">{property.name} · {activeCount} активни резервации</p>
         </div>
-        <a href={`/?tab=upcoming&property=${propertyId}&new=1`} className="tap-target hidden min-h-11 items-center justify-center gap-2 rounded-2xl bg-brand-600 px-5 py-3 text-base font-black text-white shadow-sm md:inline-flex" onClick={(event) => {
-          event.preventDefault();
-          debugClick("new reservation reservations tab");
-          onNew();
-        }}>
-          <Plus size={19} /> Нова резервация
-        </a>
-        <div className="grid gap-3 md:hidden">
-          {filterControls}
-          {roomControls}
-          {searchBox}
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Button type="button" className="tap-target min-h-11 rounded-2xl border border-stone-200 bg-white px-5 py-3 text-base font-black text-clay shadow-sm" onClick={() => setIsExpanded((value) => !value)}>
+            {isExpanded ? "Скрий" : "Покажи"}
+          </Button>
+          <a href={`/?tab=upcoming&property=${propertyId}&new=1`} className="tap-target hidden min-h-11 items-center justify-center gap-2 rounded-2xl bg-brand-600 px-5 py-3 text-base font-black text-white shadow-sm md:inline-flex" onClick={(event) => {
+            event.preventDefault();
+            debugClick("new reservation reservations tab");
+            onNew();
+          }}>
+            <Plus size={19} /> Нова резервация
+          </a>
         </div>
-        <div className="hidden grid-cols-1 gap-3 md:grid">{searchBox}</div>
       </div>
-      <div className="mb-4 hidden grid-cols-1 gap-3 md:grid">{filterControls}{roomControls}</div>
-      <div className="grid gap-3">
-        {filtered.length === 0 && <p className="rounded-3xl bg-cream p-5 text-base font-semibold text-clay">Няма резервации за този филтър.</p>}
-        {filtered.map((reservation) => (
-          <article key={reservation.id} className="rounded-3xl border border-stone-200 bg-cream p-5 text-left shadow-sm">
-            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-              <div>
-                <div className="text-xl font-black text-ink">{reservation.guestName || "Без име"}</div>
-                <div className="mt-1 text-base font-bold text-clay">{formatBulgarianDateRange(reservation.checkin, reservation.checkout)}</div>
-                <div className="mt-1 text-base font-medium text-clay">{propertyName(reservation.propertyId)} · {roomsLabel(reservation)}</div>
-              </div>
-              <span className={"w-fit rounded-full px-3 py-1.5 text-sm font-black " + (reservation.depositAmount > 0 ? "bg-emerald-100 text-emerald-900" : "bg-rose-100 text-rose-900")}>
-                {reservation.depositAmount > 0 ? "Има капаро" : "Без капаро"}
-              </span>
-            </div>
-            <div className="mt-4 grid gap-2 text-base font-semibold text-stone-700 md:grid-cols-[1fr_auto_auto] md:items-center">
-              <span><PhoneLink phone={reservation.phone} /></span>
-              <div className="grid grid-cols-2 gap-2 md:contents">
-                <span className="rounded-2xl bg-white px-3 py-2 shadow-sm ring-1 ring-stone-200 md:min-w-28">
-                  <span className="block text-xs font-black uppercase text-clay">Общо</span>
-                  <span className="text-lg font-black text-ink md:text-base">{eur(reservation.totalAmount)}</span>
-                </span>
-                <span className="rounded-2xl bg-white px-3 py-2 shadow-sm ring-1 ring-stone-200 md:min-w-28">
-                  <span className="block text-xs font-black uppercase text-clay">Остатък</span>
-                  <span className="text-lg font-black text-rose-800 md:text-base">{eur(reservationBalance(reservation))}</span>
-                </span>
-              </div>
-            </div>
-            {reservation.notes && <p className="mt-3 text-base font-medium text-clay">{reservation.notes}</p>}
-            <a href={`/?tab=upcoming&property=${reservation.propertyId}&edit=${reservation.id}`} className="tap-target mt-4 inline-flex w-full items-center justify-center rounded-2xl bg-brand-600 px-5 py-3 text-base font-black text-white shadow-sm md:w-auto" onClick={(event) => {
-              event.preventDefault();
-              debugClick("edit reservation");
-              onEdit(reservation);
-            }}>Редакция</a>
-          </article>
-        ))}
-      </div>
+      {!isExpanded ? (
+        <p className="rounded-3xl bg-cream p-4 text-base font-semibold text-clay">{activeCount} активни резервации</p>
+      ) : (
+        <>
+          <div className="mb-4 grid gap-3 md:hidden">
+            {filterControls}
+            {roomControls}
+            {searchBox}
+          </div>
+          <div className="mb-4 hidden grid-cols-1 gap-3 md:grid">{searchBox}{filterControls}{roomControls}</div>
+          <div className="grid gap-3">
+            {filtered.length === 0 && <p className="rounded-3xl bg-cream p-5 text-base font-semibold text-clay">Няма резервации за този филтър.</p>}
+            {filtered.map((reservation) => (
+              <article key={reservation.id} className="rounded-3xl border border-stone-200 bg-cream p-5 text-left shadow-sm">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <div className="text-xl font-black text-ink">{reservation.guestName || "Без име"}</div>
+                    <div className="mt-1 text-base font-bold text-clay">{formatBulgarianDateRange(reservation.checkin, reservation.checkout)}</div>
+                    <div className="mt-1 text-base font-medium text-clay">{propertyName(reservation.propertyId)} · {roomsLabel(reservation)}</div>
+                  </div>
+                  <span className={"w-fit rounded-full px-3 py-1.5 text-sm font-black " + (reservation.depositAmount > 0 ? "bg-emerald-100 text-emerald-900" : "bg-rose-100 text-rose-900")}>
+                    {reservation.depositAmount > 0 ? "Има капаро" : "Без капаро"}
+                  </span>
+                </div>
+                <div className="mt-4 grid gap-2 text-base font-semibold text-stone-700 md:grid-cols-[1fr_auto_auto] md:items-center">
+                  <span><PhoneLink phone={reservation.phone} /></span>
+                  <div className="grid grid-cols-2 gap-2 md:contents">
+                    <span className="rounded-2xl bg-white px-3 py-2 shadow-sm ring-1 ring-stone-200 md:min-w-28">
+                      <span className="block text-xs font-black uppercase text-clay">Общо</span>
+                      <span className="text-lg font-black text-ink md:text-base">{eur(reservation.totalAmount)}</span>
+                    </span>
+                    <span className="rounded-2xl bg-white px-3 py-2 shadow-sm ring-1 ring-stone-200 md:min-w-28">
+                      <span className="block text-xs font-black uppercase text-clay">Остатък</span>
+                      <span className="text-lg font-black text-rose-800 md:text-base">{eur(reservationBalance(reservation))}</span>
+                    </span>
+                  </div>
+                </div>
+                {reservation.notes && <p className="mt-3 text-base font-medium text-clay">{reservation.notes}</p>}
+                <a href={`/?tab=upcoming&property=${reservation.propertyId}&edit=${reservation.id}`} className="tap-target mt-4 inline-flex w-full items-center justify-center rounded-2xl bg-brand-600 px-5 py-3 text-base font-black text-white shadow-sm md:w-auto" onClick={(event) => {
+                  event.preventDefault();
+                  debugClick("edit reservation");
+                  onEdit(reservation);
+                }}>Редакция</a>
+              </article>
+            ))}
+          </div>
+        </>
+      )}
     </section>
   );
 }
@@ -1492,10 +1504,8 @@ function FinanceView({ data }: { data: AppData }) {
           <input className="tap-target mt-1 w-full rounded-2xl border border-stone-200 bg-white px-3 outline-none focus:ring-2 focus:ring-brand-100 sm:w-48" type="month" value={selectedMonth} onInput={(event) => setSelectedMonth(event.currentTarget.value)} onChange={(event) => setSelectedMonth(event.target.value)} />
         </label>
       </div>
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
-        <Kpi label="Резервации" value={kpis.reservationRevenue} />
-        <Kpi label="Капаро" value={kpis.deposits} />
-        <Kpi label="Ръчни приходи" value={kpis.manualIncome} />
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <Kpi label="Общи Приходи" value={getFinanceRevenue(kpis)} />
         <Kpi label="Разходи" value={kpis.expenses} danger />
         <Kpi label="Нетно" value={kpis.net} />
         <KpiText label="Разходи / Приходи" value={ratioLabel} danger={kpis.expenses > 0} />
@@ -1517,9 +1527,7 @@ function MonthlyFinanceChart({ data, month }: { data: AppData; month: string }) 
   const ratioAxisMax = Math.max(100, Math.ceil((expenseRatio || 0) / 25) * 25);
   const ratioTop = expenseRatio === null ? null : `${100 - Math.min(expenseRatio, ratioAxisMax) / ratioAxisMax * 100}%`;
   const rows = [
-    { label: "Резервации", value: kpis.reservationRevenue, color: "bg-emerald-600" },
-    { label: "Капаро", value: kpis.deposits, color: "bg-amber-500" },
-    { label: "Ръчни приходи", value: kpis.manualIncome, color: "bg-brand-600" },
+    { label: "Общи Приходи", value: getFinanceRevenue(kpis), color: "bg-emerald-600" },
     { label: "Разходи", value: kpis.expenses, color: "bg-red-600" },
     { label: "Нетно", value: kpis.net, color: "bg-stone-700" }
   ];
@@ -1530,7 +1538,7 @@ function MonthlyFinanceChart({ data, month }: { data: AppData; month: string }) 
     <div className="mt-4 rounded-3xl bg-cream p-4 ring-1 ring-stone-200">
       <h3 className="mb-4 text-lg font-black text-ink">Месечен резултат · {formatMonthLabel(month)}</h3>
       <div className="overflow-x-auto pb-2">
-        <div className="grid min-w-[720px] grid-cols-[70px_1fr_54px] gap-3">
+        <div className="grid min-w-[560px] grid-cols-[70px_1fr_54px] gap-3">
           <div className="flex h-72 flex-col justify-between text-right text-xs font-bold text-clay">
             {guideValues.map((value) => <span key={value}>{eurWhole(value)}</span>)}
           </div>
@@ -1545,7 +1553,7 @@ function MonthlyFinanceChart({ data, month }: { data: AppData; month: string }) 
             {rows.map((row) => {
               const height = Math.max(row.value === 0 ? 0 : 10, (Math.abs(row.value) / maxValue) * 250);
               return (
-                <div key={row.label} className="flex min-w-[92px] flex-col items-center justify-end gap-2">
+                <div key={row.label} className="flex min-w-[120px] flex-col items-center justify-end gap-2">
                   <span className="whitespace-nowrap text-xs font-black text-clay">{eurWhole(row.value)}</span>
                   <div className={`w-14 rounded-t-md ${row.color} ${row.value < 0 ? "opacity-70" : ""}`} style={{ height }} title={`${row.label}: ${eurWhole(row.value)}`} />
                   <span className="min-h-10 text-center text-xs font-black text-clay">{row.label}</span>
@@ -1572,13 +1580,11 @@ function FinanceSummaryTable({ data, selectedMonth }: { data: AppData; selectedM
     <div className="mt-4 rounded-3xl bg-cream p-4 ring-1 ring-stone-200">
       <h3 className="mb-4 text-lg font-black text-ink">Обобщение по месеци</h3>
       <div className="overflow-x-auto">
-        <table className="min-w-[760px] w-full border-separate border-spacing-y-2 text-left text-sm">
+        <table className="min-w-[520px] w-full border-separate border-spacing-y-2 text-left text-sm">
           <thead className="text-clay">
             <tr>
               <th className="px-3 py-2">Месец</th>
-              <th className="px-3 py-2">Резервации</th>
-              <th className="px-3 py-2">Капаро</th>
-              <th className="px-3 py-2">Ръчни приходи</th>
+              <th className="px-3 py-2">Общи Приходи</th>
               <th className="px-3 py-2">Разходи</th>
               <th className="px-3 py-2">Нетно</th>
             </tr>
@@ -1589,9 +1595,7 @@ function FinanceSummaryTable({ data, selectedMonth }: { data: AppData; selectedM
               return (
                 <tr key={monthValue} className={monthValue === selectedMonth ? "bg-brand-50" : "bg-white"}>
                   <td className="rounded-l-2xl px-3 py-3 font-black text-ink">{formatMonthLabel(monthValue)}</td>
-                  <td className="px-3 py-3 font-bold">{eurWhole(row.reservationRevenue)}</td>
-                  <td className="px-3 py-3 font-bold">{eurWhole(row.deposits)}</td>
-                  <td className="px-3 py-3 font-bold">{eurWhole(row.manualIncome)}</td>
+                  <td className="px-3 py-3 font-bold">{eurWhole(getFinanceRevenue(row))}</td>
                   <td className="px-3 py-3 font-bold text-red-700">{eurWhole(row.expenses)}</td>
                   <td className="rounded-r-2xl px-3 py-3 font-black">{eurWhole(row.net)}</td>
                 </tr>
@@ -1621,9 +1625,7 @@ function YearToDateFinanceChart({ data, months, selectedMonth }: { data: AppData
     { reservationRevenue: 0, deposits: 0, manualIncome: 0, expenses: 0, net: 0 }
   );
   const chartRows = [
-    { label: "Резервации", value: totals.reservationRevenue, color: "bg-emerald-600" },
-    { label: "Капаро", value: totals.deposits, color: "bg-amber-500" },
-    { label: "Ръчни приходи", value: totals.manualIncome, color: "bg-brand-600" },
+    { label: "Общи Приходи", value: getFinanceRevenue(totals), color: "bg-emerald-600" },
     { label: "Разходи", value: totals.expenses, color: "bg-red-600" },
     { label: "Нетно", value: totals.net, color: totals.net < 0 ? "bg-rose-700" : "bg-stone-700" },
   ];
@@ -1638,7 +1640,7 @@ function YearToDateFinanceChart({ data, months, selectedMonth }: { data: AppData
         <p className="rounded-2xl bg-cream p-4 text-base font-semibold text-clay">Няма данни за годината.</p>
       ) : (
         <div className="overflow-x-auto pb-2">
-          <div className="flex min-w-[620px] items-end justify-around gap-5 border-b border-stone-300 px-4 pt-4">
+          <div className="flex min-w-[460px] items-end justify-around gap-5 border-b border-stone-300 px-4 pt-4">
             {chartRows.map((row) => {
               const height = Math.max(row.value === 0 ? 0 : 12, (Math.abs(row.value) / maxValue) * 220);
               return (
