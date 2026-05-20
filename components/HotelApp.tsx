@@ -421,10 +421,14 @@ export function HotelApp({
   return (
     <main className="mx-auto flex min-h-screen max-w-7xl flex-col gap-4 px-3 pb-28 pt-3 text-ink sm:px-5 lg:pb-8">
       <header className="soft-card sticky top-2 z-20 rounded-2xl p-3 backdrop-blur sm:p-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-black tracking-normal text-ink">Hotel Lidia</h1>
-            {tab === "upcoming" && <p className="text-sm font-medium text-clay">{sync}</p>}
+            {tab === "upcoming" && (
+              <span className="inline-flex min-h-8 items-center rounded-full border border-emerald-100 bg-emerald-50 px-3 text-xs font-black text-emerald-800 shadow-sm">
+                {sync}
+              </span>
+            )}
           </div>
           <div className="hidden w-full grid-cols-1 gap-2 md:grid md:grid-cols-[1fr_auto_auto_auto_auto] lg:w-auto">
             {tab === "calendar" && <MonthPicker month={month} tab={tab} propertyId={activeProperty} setMonth={setMonth} />}
