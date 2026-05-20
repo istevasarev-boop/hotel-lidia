@@ -31,6 +31,7 @@ export default async function Home({ searchParams }: { searchParams: SearchParam
       initialQuery={query}
       initialNewReservation={stringParam(params.new) === "1"}
       initialReservationDate={stringParam(params.date)}
+      initialCalendarDate={isDateParam(stringParam(params.day)) ? stringParam(params.day) : undefined}
       initialReservationRoom={room}
       initialEditReservationId={stringParam(params.edit)}
       initialServerSession={hasServerSession}
@@ -44,6 +45,10 @@ function stringParam(value: string | string[] | undefined): string | undefined {
 
 function isMonthParam(value: string | undefined): value is string {
   return Boolean(value && /^\d{4}-\d{2}$/.test(value));
+}
+
+function isDateParam(value: string | undefined): value is string {
+  return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
 }
 
 function isFilterParam(value: string | undefined): value is "all" | "today" | "next7" | "month" | "noDeposit" {

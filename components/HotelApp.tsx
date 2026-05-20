@@ -11,7 +11,7 @@ import { deleteReservationById, upsertReservation } from "@/domain/reservations/
 import { EMPTY_DATA, PROPERTIES, type AppData, type BookingTypeId, type Expense, type ManualIncome, type PropertyId, type Reservation, type RoomId } from "@/domain/reservations/types";
 import { reservationBalance } from "@/domain/finance/kpis";
 import { getBulgarianHolidayInfo, type BulgarianHolidayInfo } from "@/domain/holidays/bgHolidayCalendar";
-import { formatBulgarianDateRange } from "@/lib/bgDateFormat";
+import { formatBulgarianDateRange, formatBulgarianDayOrdinal } from "@/lib/bgDateFormat";
 import { eur } from "@/lib/currency";
 import { createId } from "@/lib/ids";
 import { loadHotelData, saveHotelData } from "@/lib/firebase/db";
@@ -96,6 +96,7 @@ export function HotelApp({
   initialQuery,
   initialNewReservation = false,
   initialReservationDate,
+  initialCalendarDate,
   initialReservationRoom,
   initialEditReservationId,
   initialData = EMPTY_DATA,
@@ -109,6 +110,7 @@ export function HotelApp({
   initialQuery?: string;
   initialNewReservation?: boolean;
   initialReservationDate?: string;
+  initialCalendarDate?: string;
   initialReservationRoom?: string;
   initialEditReservationId?: string;
   initialData?: AppData;
@@ -117,7 +119,7 @@ export function HotelApp({
 }) {
   const [data, setData] = useState<AppData>(initialData);
   const [month, setMonth] = useState(() => initialMonth || monthKey(todayISO()));
-  const [activeProperty, setActiveProperty] = useState<PropertyId>(initialProperty);
+  const [activeProperty] = useState<PropertyId>(initialProperty);
   const [tab, setTab] = useState<Tab>(initialTab);
   const [listFilter, setListFilter] = useState<ListFilter>(initialListFilter || "all");
   const [query, setQuery] = useState(initialQuery || "");
@@ -472,13 +474,6 @@ export function HotelApp({
         </div>
       )}
 
-      {tab === "calendar" && <div className="hidden md:block">
-        <PropertySwitch value={activeProperty} onChange={setActiveProperty} />
-      </div>}
-      {tab === "calendar" && <div className="md:hidden">
-        <MobilePropertySwitch value={activeProperty} onChange={setActiveProperty} tab={tab} />
-      </div>}
-
       <section className="soft-card hidden grid-cols-4 gap-2 rounded-2xl p-2 md:grid">
         <TabButton active={tab === "upcoming"} href={`/?tab=upcoming&property=${activeProperty}`} icon={<Home size={18} />} label="Предстоящи" onClick={() => setTab("upcoming")} />
         <TabButton active={tab === "calendar"} href={`/?tab=calendar&property=${activeProperty}`} icon={<CalendarDays size={18} />} label="Календар" onClick={() => setTab("calendar")} />
@@ -518,6 +513,7 @@ export function HotelApp({
             onEdit={openEditReservation}
             onSetBookingInventory={ENABLE_BOOKING_MODE ? setBookingInventory : undefined}
             onEnsureBookingFeedTokens={ENABLE_BOOKING_MODE ? ensureBookingFeedTokens : undefined}
+            initialSelectedDate={initialCalendarDate}
           />
         </div>
       )}
@@ -622,51 +618,6 @@ function MonthPicker({ month, tab, propertyId, setMonth }: { month: string; tab:
       <a href={hrefFor(shiftedMonth(1))} className="tap-target inline-flex items-center justify-center rounded-xl bg-cream px-2 text-clay shadow-sm sm:px-3" onClick={(event) => { event.preventDefault(); debugClick("next month"); selectMonth(shiftedMonth(1)); }} title="Следващ месец">
         <ChevronRight size={18} />
       </a>
-    </div>
-  );
-}
-
-function PropertySwitch({ value, onChange }: { value: PropertyId; onChange: (value: PropertyId) => void }) {
-  return (
-    <div className="grid grid-cols-1 gap-2 min-[430px]:grid-cols-2">
-      {PROPERTIES.map((property) => (
-        <a
-          href={`/?tab=calendar&property=${property.id}`}
-          key={property.id}
-          className={`tap-target rounded-2xl px-4 py-3 text-left font-black shadow-sm transition ${value === property.id ? "bg-brand-600 text-white ring-1 ring-brand-700" : "soft-card text-ink"}`}
-          onClick={(event) => {
-            event.preventDefault();
-            debugClick(`property ${property.id}`);
-            window.history.replaceState(null, "", `/?tab=calendar&property=${property.id}`);
-            onChange(property.id);
-          }}
-        >
-          {property.name}
-          <span className="block text-sm font-semibold opacity-80">Стаи {property.rooms.join(", ")}</span>
-        </a>
-      ))}
-    </div>
-  );
-}
-
-function MobilePropertySwitch({ value, onChange, tab }: { value: PropertyId; onChange: (value: PropertyId) => void; tab: Tab }) {
-  return (
-    <div className="soft-card grid grid-cols-2 gap-1 rounded-2xl p-1">
-      {PROPERTIES.map((property) => (
-        <a
-          href={`/?tab=${tab}&property=${property.id}`}
-          key={property.id}
-          className={`tap-target rounded-xl px-3 py-2 text-center text-sm font-black transition ${value === property.id ? "bg-brand-600 text-white shadow-sm" : "text-clay"}`}
-          onClick={(event) => {
-            event.preventDefault();
-            debugClick(`mobile property ${property.id}`);
-            window.history.replaceState(null, "", `/?tab=${tab}&property=${property.id}`);
-            onChange(property.id);
-          }}
-        >
-          {property.name}
-        </a>
-      ))}
     </div>
   );
 }
@@ -915,7 +866,8 @@ function CalendarView({
   onNew,
   onEdit,
   onSetBookingInventory,
-  onEnsureBookingFeedTokens
+  onEnsureBookingFeedTokens,
+  initialSelectedDate
 }: {
   month: string;
   propertyId: PropertyId;
@@ -925,76 +877,61 @@ function CalendarView({
   onEdit: (reservation: Reservation) => void;
   onSetBookingInventory?: (propertyId: PropertyId, bookingType: BookingTypeId, startDate: string, endDate: string, inventory: number) => Promise<void>;
   onEnsureBookingFeedTokens?: () => Promise<void>;
+  initialSelectedDate?: string;
 }) {
-  const property = PROPERTIES.find((item) => item.id === propertyId) || PROPERTIES[0];
+  void data;
+  void onSetBookingInventory;
+  void onEnsureBookingFeedTokens;
+
   const [year, monthNumber] = month.split("-").map(Number);
   const [openHolidayDate, setOpenHolidayDate] = useState<string | null>(null);
-  const [bookingMode, setBookingMode] = useState(false);
-  const [showBookingFeeds, setShowBookingFeeds] = useState(false);
-  const [pendingBookingAction, setPendingBookingAction] = useState<null | { bookingType: BookingTypeId; date: string; inventory: number }>(null);
+  const [selectedDate, setSelectedDate] = useState<string | null>(initialSelectedDate || null);
   const days = new Date(year, monthNumber, 0).getDate();
   const firstOffset = (new Date(year, monthNumber - 1, 1).getDay() + 6) % 7;
-  const visibleReservations = reservations.filter((reservation) => reservation.propertyId === property.id && overlapsMonth(reservation.checkin, reservation.checkout, month));
+  const visibleReservations = reservations.filter((reservation) => overlapsMonth(reservation.checkin, reservation.checkout, month));
   const activeHolidayInfo = openHolidayDate ? getBulgarianHolidayInfo(openHolidayDate) : null;
+  const selectedHolidayInfo = selectedDate ? getBulgarianHolidayInfo(selectedDate) : null;
 
   return (
-    <section className="soft-card rounded-3xl p-2 sm:p-3">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+    <section className="soft-card rounded-3xl p-3 sm:p-4">
+      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-xl font-black text-ink sm:text-2xl">{property.name}</h2>
-          <p className="text-sm font-medium text-clay">Натисни стая за нова резервация или за редакция.</p>
+          <h2 className="text-xl font-black text-ink sm:text-2xl">Календар</h2>
+          <p className="text-sm font-medium text-clay">Общ преглед за Вила Лидия и Къща Лидия. Натисни дата, за да видиш стаите.</p>
         </div>
         <div className="flex flex-wrap gap-2 text-xs font-bold text-clay">
-          <Legend color="bg-stone-100 border-stone-200" label="Свободна" />
-          <Legend color="bg-emerald-100 border-emerald-300" label="Има капаро" />
-          <Legend color="bg-rose-100 border-rose-300" label="Без капаро" />
-          <Legend color="bg-red-500 border-red-600" label={WHOLE_PROPERTY_LABEL} />
-          {ENABLE_BOOKING_MODE && (
-            <Button
-              type="button"
-              className={`tap-target rounded-xl px-3 py-2 font-black shadow-sm ${bookingMode ? "bg-sky-700 text-white" : "border border-sky-200 bg-white text-sky-800"}`}
-              onClick={() => setBookingMode((value) => !value)}
-            >
-              Booking mode
-            </Button>
-          )}
+          <Legend color="bg-emerald-100 border-emerald-300" label="свободно" />
+          <Legend color="bg-amber-100 border-amber-300" label="частично заето" />
+          <Legend color="bg-rose-200 border-rose-400" label="изцяло заето" />
         </div>
       </div>
-      {ENABLE_BOOKING_MODE && bookingMode && onEnsureBookingFeedTokens && (
-        <BookingCalendarBar
-          propertyId={property.id}
-          data={data}
-          showFeeds={showBookingFeeds}
-          setShowFeeds={setShowBookingFeeds}
-          onEnsureBookingFeedTokens={onEnsureBookingFeedTokens}
-        />
-      )}
+
+      <HolidayInfoBar holiday={activeHolidayInfo || selectedHolidayInfo} />
+
       <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-black text-slate-500 sm:text-xs">
-        {["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"].map((day) => <div key={day}>{day}</div>)}
+        {["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"].map((dayName) => <div key={dayName}>{dayName}</div>)}
       </div>
-      <HolidayInfoBar holiday={activeHolidayInfo} />
-      <div className="mt-1 grid grid-cols-7 gap-1">
-        {Array.from({ length: firstOffset }).map((_, index) => <div className="min-h-[78px] rounded-xl bg-stone-50/70 sm:min-h-[92px]" key={`empty-${index}`} />)}
+
+      <div className="mt-1 grid grid-cols-7 gap-1 sm:gap-2">
+        {Array.from({ length: firstOffset }).map((_, index) => <div className="min-h-[66px] rounded-2xl bg-stone-50/70 sm:min-h-[92px]" key={`empty-${index}`} />)}
         {Array.from({ length: days }).map((_, index) => {
           const day = index + 1;
           const iso = `${month}-${String(day).padStart(2, "0")}`;
-          const dayReservations = visibleReservations.filter((reservation) => activeOnDate(reservation.checkin, reservation.checkout, iso));
-          const whole = dayReservations.find((reservation) => reservation.rooms.includes("all"));
           const date = new Date(year, monthNumber - 1, day);
           const weekdayIndex = date.getDay();
-          const weekday = ["Нд", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"][weekdayIndex];
+          const weekday = BG_WEEKDAYS_LONG[weekdayIndex];
           const holiday = getBulgarianHolidayInfo(iso);
-          const dayTone = holiday
-            ? "border-sky-200 bg-sky-50/80"
-            : weekdayIndex === 5 || weekdayIndex === 6
-              ? "border-amber-100 bg-amber-50/70"
-              : "border-stone-200 bg-cream";
+          const occupancy = getCombinedDayOccupancy(visibleReservations, iso);
+          const tone = getOccupancyTone(occupancy.occupied, occupancy.total);
+          const isWeekend = weekdayIndex === 5 || weekdayIndex === 6;
+          const isSelected = selectedDate === iso;
+
           return (
-            <div
+            <a
               key={iso}
-              className={`min-h-[88px] rounded-xl border p-1.5 shadow-sm sm:min-h-[108px] sm:p-2 ${dayTone}`}
+              href={`/?tab=calendar&property=${propertyId}&month=${month}&day=${iso}`}
+              className={`tap-target min-h-[66px] rounded-2xl border p-1.5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow sm:min-h-[92px] sm:p-2 ${tone.className} ${isWeekend ? "ring-1 ring-amber-200/70" : ""} ${holiday ? "outline outline-1 outline-sky-200" : ""} ${isSelected ? "ring-2 ring-brand-600" : ""}`}
               title={getHolidayTooltipText(holiday)}
-              tabIndex={holiday ? 0 : undefined}
               onMouseEnter={() => {
                 if (holiday) setOpenHolidayDate(iso);
               }}
@@ -1002,69 +939,36 @@ function CalendarView({
                 if (holiday) setOpenHolidayDate(iso);
               }}
               onClick={(event) => {
-                if (!holiday) return;
-                const target = event.target as HTMLElement;
-                if (target.closest("a,button,input,select,textarea")) return;
-                setOpenHolidayDate((current) => current === iso ? null : iso);
+                event.preventDefault();
+                debugClick("calendar open day detail");
+                window.history.replaceState(null, "", `/?tab=calendar&property=${propertyId}&month=${month}&day=${iso}`);
+                setSelectedDate(iso);
+                if (holiday) setOpenHolidayDate(iso);
               }}
             >
-              <div className="mb-1 flex items-center justify-between">
-                <span className="truncate text-[11px] font-black text-ink sm:text-sm"><span className="hidden sm:inline">{weekday}, </span>{day}</span>
-                <span className="rounded-full bg-white/80 px-1 text-[9px] font-black text-clay sm:px-1.5 sm:text-[10px]">{whole ? property.rooms.length : occupiedRooms(dayReservations)}/{property.rooms.length}</span>
-              </div>
-              {holiday && <div className="mb-1 hidden truncate rounded-full bg-white/70 px-1.5 py-0.5 text-[10px] font-black text-sky-900 sm:block">{holiday.holidayName}</div>}
-              {ENABLE_BOOKING_MODE && bookingMode && (
-                <BookingDayControls
-                  data={data}
-                  propertyId={property.id}
-                  date={iso}
-                  onSelect={(bookingType, inventory) => setPendingBookingAction({ bookingType, date: iso, inventory })}
-                />
-              )}
-              {whole ? (
-                <WholePropertyBlock
-                  reservation={whole}
-                  hasMixedReservations={dayReservations.some((reservation) => !reservation.rooms.includes("all"))}
-                  href={`/?tab=calendar&property=${property.id}&edit=${whole.id}`}
-                  onEdit={onEdit}
-                />
-              ) : (
-                <div className="grid grid-cols-2 gap-0.5 sm:gap-1">
-                  {property.rooms.map((room) => {
-                    const reservation = dayReservations.find((item) => item.rooms.map(String).includes(room));
-                    return (
-                      <RoomTile
-                        key={room}
-                        room={room}
-                        reservation={reservation}
-                        href={reservation ? `/?tab=calendar&property=${property.id}&edit=${reservation.id}` : `/?tab=calendar&property=${property.id}&new=1&date=${iso}&room=${room}`}
-                        onNew={() => onNew(property.id, iso, room)}
-                        onEdit={onEdit}
-                      />
-                    );
-                  })}
-                  <RoomTile room="all" reservation={undefined} whole href={`/?tab=calendar&property=${property.id}&new=1&date=${iso}&room=all`} onNew={() => onNew(property.id, iso, "all")} onEdit={onEdit} />
-                </div>
-              )}
-            </div>
+              <span className="block truncate text-[10px] font-black text-ink sm:text-sm">{weekday}</span>
+              <span className="mt-0.5 block text-sm font-black text-ink sm:text-2xl">{formatBulgarianDayOrdinal(day)}</span>
+              <span className="mt-1 inline-flex rounded-full bg-white/75 px-1.5 py-0.5 text-[9px] font-black text-clay sm:text-xs">
+                {occupancy.occupied}/{occupancy.total}
+              </span>
+              {holiday && <span className="mt-1 hidden truncate text-[10px] font-black text-sky-900 sm:block">{holiday.holidayName}</span>}
+            </a>
           );
         })}
       </div>
-      {ENABLE_BOOKING_MODE && pendingBookingAction && onSetBookingInventory && (
-        <BookingInventoryConfirmModal
-          propertyId={property.id}
-          action={pendingBookingAction}
-          data={data}
-          onCancel={() => setPendingBookingAction(null)}
-          onConfirm={async () => {
-            await onSetBookingInventory(
-              property.id,
-              pendingBookingAction.bookingType,
-              pendingBookingAction.date,
-              addDaysISO(pendingBookingAction.date, 1),
-              pendingBookingAction.inventory
-            );
-            setPendingBookingAction(null);
+
+      {selectedDate && (
+        <DayDetailPanel
+          date={selectedDate}
+          reservations={reservations}
+          onClose={() => setSelectedDate(null)}
+          onNew={(nextPropertyId, room) => {
+            setSelectedDate(null);
+            onNew(nextPropertyId, selectedDate, room);
+          }}
+          onEdit={(reservation) => {
+            setSelectedDate(null);
+            onEdit(reservation);
           }}
         />
       )}
@@ -1072,6 +976,160 @@ function CalendarView({
   );
 }
 
+function DayDetailPanel({
+  date,
+  reservations,
+  onClose,
+  onNew,
+  onEdit
+}: {
+  date: string;
+  reservations: Reservation[];
+  onClose: () => void;
+  onNew: (propertyId: PropertyId, room?: RoomId | "all") => void;
+  onEdit: (reservation: Reservation) => void;
+}) {
+  const holiday = getBulgarianHolidayInfo(date);
+  const dayReservations = reservations.filter((reservation) => activeOnDate(reservation.checkin, reservation.checkout, date));
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end bg-stone-950/35 p-0 sm:items-center sm:justify-center sm:p-4" onClick={onClose}>
+      <section className="max-h-[88vh] w-full overflow-y-auto rounded-t-3xl bg-cream p-4 shadow-2xl sm:max-w-3xl sm:rounded-3xl sm:p-5" onClick={(event) => event.stopPropagation()}>
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-2xl font-black text-ink">{formatDayDetailTitle(date)}</h3>
+            <p className="text-sm font-semibold text-clay">Вила Лидия и Къща Лидия</p>
+            {holiday && <p className="mt-1 rounded-2xl bg-sky-50 px-3 py-2 text-sm font-bold text-sky-900">{holiday.holidayName}</p>}
+          </div>
+          <Button type="button" className="tap-target rounded-2xl border border-stone-200 bg-white px-4 py-2 font-black text-clay shadow-sm" onClick={onClose}>
+            Затвори
+          </Button>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          {PROPERTIES.map((property) => (
+            <PropertyDayRooms
+              key={property.id}
+              property={property}
+              date={date}
+              reservations={dayReservations.filter((reservation) => reservation.propertyId === property.id)}
+              onNew={onNew}
+              onEdit={onEdit}
+            />
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function PropertyDayRooms({
+  property,
+  date,
+  reservations,
+  onNew,
+  onEdit
+}: {
+  property: (typeof PROPERTIES)[number];
+  date: string;
+  reservations: Reservation[];
+  onNew: (propertyId: PropertyId, room?: RoomId | "all") => void;
+  onEdit: (reservation: Reservation) => void;
+}) {
+  const wholeReservation = reservations.find((reservation) => reservation.rooms.includes("all"));
+  const occupiedCount = wholeReservation ? property.rooms.length : occupiedRooms(reservations);
+
+  return (
+    <article className="rounded-3xl border border-stone-200 bg-white p-4 shadow-sm">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div>
+          <h4 className="text-xl font-black text-ink">{property.name}</h4>
+          <p className="text-sm font-bold text-clay">{occupiedCount}/{property.rooms.length} заети</p>
+        </div>
+        <DayRoomAction
+          label={WHOLE_PROPERTY_LABEL}
+          reservation={wholeReservation}
+          href={wholeReservation ? `/?tab=calendar&property=${property.id}&edit=${wholeReservation.id}` : `/?tab=calendar&property=${property.id}&new=1&date=${date}&room=all`}
+          whole
+          onNew={() => onNew(property.id, "all")}
+          onEdit={onEdit}
+        />
+      </div>
+
+      {wholeReservation && (
+        <button type="button" className="mb-3 w-full rounded-2xl border border-rose-300 bg-rose-100 px-3 py-3 text-left text-sm font-black text-rose-950" onClick={() => onEdit(wholeReservation)}>
+          {WHOLE_PROPERTY_LABEL}: {wholeReservation.guestName || "Без име"}
+        </button>
+      )}
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {property.rooms.map((room) => {
+          const reservation = wholeReservation || reservations.find((item) => item.rooms.map(String).includes(room));
+          return (
+            <DayRoomAction
+              key={room}
+              label={"Стая " + room}
+              reservation={reservation}
+              href={reservation ? `/?tab=calendar&property=${property.id}&edit=${reservation.id}` : `/?tab=calendar&property=${property.id}&new=1&date=${date}&room=${room}`}
+              onNew={() => onNew(property.id, room)}
+              onEdit={onEdit}
+            />
+          );
+        })}
+      </div>
+    </article>
+  );
+}
+
+function DayRoomAction({
+  label,
+  reservation,
+  href,
+  whole,
+  onNew,
+  onEdit
+}: {
+  label: string;
+  reservation?: Reservation;
+  href: string;
+  whole?: boolean;
+  onNew: () => void;
+  onEdit: (reservation: Reservation) => void;
+}) {
+  const busy = Boolean(reservation);
+  const color = busy
+    ? reservation?.rooms.includes("all") || whole
+      ? "border-rose-300 bg-rose-100 text-rose-950"
+      : reservation?.depositAmount
+        ? "border-emerald-300 bg-emerald-100 text-emerald-950"
+        : "border-coral-200 bg-coral-50 text-rose-950"
+    : whole
+      ? "border-red-200 bg-white text-red-700"
+      : "border-stone-200 bg-cream text-stone-800";
+
+  return (
+    <a
+      href={href}
+      className={`tap-target flex min-h-14 flex-col justify-center rounded-2xl border px-3 py-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow ${color}`}
+      title={reservation ? `${reservation.guestName || "Без име"} ${reservation.checkin} - ${reservation.checkout}` : "Свободно"}
+      onClick={(event) => {
+        event.preventDefault();
+        debugClick(reservation ? "calendar day detail edit" : "calendar day detail new");
+        window.history.replaceState(null, "", href);
+        if (reservation) onEdit(reservation);
+        else onNew();
+      }}
+    >
+      <span className="text-base font-black leading-tight">{label}</span>
+      <span className="mt-1 text-xs font-bold leading-tight opacity-80">
+        {reservation ? (reservation.guestName || "Заето") : "Свободно"}
+      </span>
+    </a>
+  );
+}
+
+// Kept behind ENABLE_BOOKING_MODE for later Booking.com testing.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function BookingCalendarBar({
   propertyId,
   data,
@@ -1139,6 +1197,7 @@ function BookingCalendarBar({
   );
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function BookingDayControls({
   data,
   propertyId,
@@ -1183,6 +1242,7 @@ function BookingDayControls({
   );
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function BookingInventoryConfirmModal({
   propertyId,
   action,
@@ -1230,29 +1290,6 @@ function BookingInventoryConfirmModal({
   );
 }
 
-function RoomTile({ room, reservation, whole, href, onNew, onEdit }: { room: string; reservation?: Reservation; whole?: boolean; href: string; onNew: () => void; onEdit: (reservation: Reservation) => void }) {
-  const busy = Boolean(reservation);
-  const color = busy
-    ? reservation?.rooms.includes("all")
-      ? "bg-red-500 text-white border-red-600"
-      : reservation?.depositAmount
-        ? "bg-emerald-100 text-emerald-900 border-emerald-300"
-        : "bg-rose-100 text-rose-900 border-rose-300"
-    : "bg-white text-stone-700 border-stone-200";
-
-  return (
-    <a href={href} className={`min-h-5 rounded-md border px-1 py-0.5 text-center text-[10px] font-black leading-none shadow-sm transition hover:-translate-y-0.5 hover:shadow sm:min-h-6 sm:rounded-lg sm:text-xs ${color}`} title={reservation ? `${reservation.guestName || "Без име"} ${reservation.checkin} - ${reservation.checkout}` : "Свободно"} onClick={(event) => {
-      event.preventDefault();
-      debugClick(reservation ? "calendar edit room" : "calendar new room");
-      window.history.replaceState(null, "", href);
-      if (reservation) onEdit(reservation);
-      else onNew();
-    }}>
-      {whole ? WHOLE_PROPERTY_LABEL : room}
-    </a>
-  );
-}
-
 function HolidayInfoBar({ holiday }: { holiday: BulgarianHolidayInfo | null }) {
   return (
     <div className="my-2 min-h-[44px] rounded-2xl border border-sky-100 bg-sky-50/70 px-3 py-2 text-sm font-semibold text-clay">
@@ -1279,32 +1316,6 @@ function formatHolidayDate(date: string): string {
   const [, monthValue, dayValue] = date.split("-");
   return `${Number(dayValue)}.${monthValue}`;
 }
-
-function WholePropertyBlock({ reservation, hasMixedReservations, href, onEdit }: { reservation: Reservation; hasMixedReservations: boolean; href: string; onEdit: (reservation: Reservation) => void }) {
-  const color = reservation.depositAmount > 0
-    ? "border-emerald-300 bg-emerald-100 text-emerald-950"
-    : "border-rose-300 bg-rose-100 text-rose-950";
-
-  return (
-    <a
-      href={href}
-      className={`block min-h-6 rounded-lg border px-2 py-1 text-center text-[11px] font-black leading-tight shadow-sm transition hover:-translate-y-0.5 hover:shadow sm:min-h-7 sm:text-xs ${color}`}
-      title={`${reservation.guestName || "Без име"} ${reservation.checkin} - ${reservation.checkout}`}
-      onClick={(event) => {
-        event.preventDefault();
-        debugClick("calendar edit whole block");
-        window.history.replaceState(null, "", href);
-        onEdit(reservation);
-      }}
-    >
-      <span className="inline-flex items-center justify-center gap-1">
-        {WHOLE_PROPERTY_LABEL}
-        {hasMixedReservations && <span className="rounded-full bg-white/75 px-1 text-[9px] font-black text-rose-800" title="Има и записи по стаи">!</span>}
-      </span>
-    </a>
-  );
-}
-
 
 function ReservationsView({ month, propertyId, reservations, query, setQuery, filter, setFilter, onNew, onEdit }: { month: string; propertyId: PropertyId; reservations: Reservation[]; query: string; setQuery: (value: string) => void; filter: ListFilter; setFilter: (value: ListFilter) => void; onNew: () => void; onEdit: (reservation: Reservation) => void }) {
   const today = todayISO();
@@ -1752,7 +1763,7 @@ function ReservationModal({ draft, setDraft, closeHref, onClose, onSave, onDelet
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end bg-stone-950/45 sm:items-center sm:justify-center">
+    <div className="fixed inset-0 z-[70] flex items-end bg-stone-950/45 sm:items-center sm:justify-center">
       <form className="max-h-[92vh] w-full overflow-auto rounded-t-3xl bg-cream p-3 shadow-2xl sm:max-w-2xl sm:rounded-3xl sm:p-4" onSubmit={(event) => {
         const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
         event.preventDefault();
@@ -1863,6 +1874,55 @@ function Legend({ color, label }: { color: string; label: string }) {
 
 function propertyName(propertyId: PropertyId): string {
   return PROPERTIES.find((property) => property.id === propertyId)?.name || propertyId;
+}
+
+const BG_WEEKDAYS_LONG = ["Неделя", "Понеделник", "Вторник", "Сряда", "Четвъртък", "Петък", "Събота"];
+
+function getCombinedDayOccupancy(reservations: Reservation[], isoDate: string): { occupied: number; total: number } {
+  let occupied = 0;
+
+  PROPERTIES.forEach((property) => {
+    const propertyReservations = reservations.filter((reservation) => reservation.propertyId === property.id && activeOnDate(reservation.checkin, reservation.checkout, isoDate));
+    if (propertyReservations.some((reservation) => reservation.rooms.includes("all"))) {
+      occupied += property.rooms.length;
+      return;
+    }
+
+    const occupiedRoomsForProperty = new Set(
+      propertyReservations.flatMap((reservation) => reservation.rooms.filter((room) => room !== "all"))
+    );
+    occupied += occupiedRoomsForProperty.size;
+  });
+
+  return { occupied, total: totalHotelCapacity() };
+}
+
+function totalHotelCapacity(): number {
+  return PROPERTIES.reduce((sum, property) => sum + property.rooms.length, 0);
+}
+
+function getOccupancyTone(occupied: number, total: number): { status: "free" | "partial" | "full"; className: string } {
+  if (occupied <= 0) return { status: "free", className: "border-emerald-200 bg-emerald-50 text-emerald-950" };
+  if (occupied >= total) return { status: "full", className: "border-rose-300 bg-rose-100 text-rose-950" };
+  return { status: "partial", className: "border-amber-300 bg-amber-50 text-amber-950" };
+}
+
+function formatDayDetailTitle(date: string): string {
+  const parsed = parseISODateForCalendar(date);
+  if (!parsed) return date;
+  const weekday = BG_WEEKDAYS_LONG[parsed.date.getDay()];
+  return `${weekday}, ${formatBulgarianDayOrdinal(parsed.day)}`;
+}
+
+function parseISODateForCalendar(value: string): { date: Date; day: number } | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || "");
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return { date: new Date(year, month - 1, day), day };
 }
 
 function occupiedRooms(reservations: Reservation[]): number {
