@@ -908,8 +908,24 @@ function CalendarView({
   const days = new Date(year, monthNumber, 0).getDate();
   const firstOffset = (new Date(year, monthNumber - 1, 1).getDay() + 6) % 7;
   const visibleReservations = reservations.filter((reservation) => overlapsMonth(reservation.checkin, reservation.checkout, month));
+  const holidayIdeas = useMemo(() => getMonthHolidayIdeas(month), [month]);
+  const [holidayIdeaIndex, setHolidayIdeaIndex] = useState(0);
   const activeHolidayInfo = openHolidayDate ? getBulgarianHolidayInfo(openHolidayDate) : null;
-  const selectedHolidayInfo = selectedDate ? getBulgarianHolidayInfo(selectedDate) : null;
+  const carouselHolidayInfo = holidayIdeas[holidayIdeaIndex] || activeHolidayInfo;
+
+  useEffect(() => {
+    setHolidayIdeaIndex(0);
+  }, [month, holidayIdeas.length]);
+
+  useEffect(() => {
+    if (holidayIdeas.length <= 1) return;
+
+    const timer = window.setInterval(() => {
+      setHolidayIdeaIndex((index) => (index + 1) % holidayIdeas.length);
+    }, 5000);
+
+    return () => window.clearInterval(timer);
+  }, [holidayIdeas.length]);
 
   return (
     <section className="soft-card rounded-3xl p-3 sm:p-4">
@@ -925,7 +941,7 @@ function CalendarView({
         </div>
       </div>
 
-      <HolidayInfoBar holiday={activeHolidayInfo || selectedHolidayInfo} />
+      <HolidayInfoBar holiday={carouselHolidayInfo} index={holidayIdeas.length ? holidayIdeaIndex + 1 : undefined} total={holidayIdeas.length || undefined} />
 
       <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-black text-slate-500 sm:text-xs">
         {["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"].map((dayName) => <div key={dayName}>{dayName}</div>)}
@@ -942,6 +958,7 @@ function CalendarView({
           const holiday = getBulgarianHolidayInfo(iso);
           const occupancy = getCombinedDayOccupancy(visibleReservations, iso);
           const tone = getOccupancyTone(occupancy.occupied, occupancy.total);
+          const occupancyPercent = Math.min(100, Math.max(0, (occupancy.occupied / occupancy.total) * 100));
           const isWeekend = weekdayIndex === 5 || weekdayIndex === 6;
           const isSelected = selectedDate === iso;
 
@@ -949,7 +966,7 @@ function CalendarView({
             <a
               key={iso}
               href={`/?tab=calendar&property=${propertyId}&month=${month}&day=${iso}`}
-              className={`tap-target relative min-h-[66px] rounded-2xl border p-1.5 pb-7 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow sm:min-h-[92px] sm:p-2 sm:pb-8 ${tone.className} ${isWeekend ? "ring-1 ring-amber-200/70" : ""} ${holiday ? "outline outline-1 outline-sky-200" : ""} ${isSelected ? "ring-2 ring-brand-600" : ""}`}
+              className={`tap-target relative flex min-h-[66px] flex-col items-center justify-center rounded-2xl border p-1.5 pb-8 text-center shadow-sm transition hover:-translate-y-0.5 hover:shadow sm:min-h-[92px] sm:p-2 sm:pb-9 ${tone.className} ${isWeekend ? "ring-1 ring-amber-200/70" : ""} ${holiday ? "outline outline-1 outline-sky-200" : ""} ${isSelected ? "ring-2 ring-brand-600" : ""}`}
               title={getHolidayTooltipText(holiday)}
               onMouseEnter={() => {
                 if (holiday) setOpenHolidayDate(iso);
@@ -965,12 +982,17 @@ function CalendarView({
                 if (holiday) setOpenHolidayDate(iso);
               }}
             >
-              <span className="block truncate text-[10px] font-black text-ink sm:text-sm">{weekday}</span>
-              <span className="mt-0.5 block text-sm font-black text-ink sm:text-2xl">{day}</span>
-              <span className="absolute bottom-1.5 right-1.5 inline-flex rounded-full bg-white/75 px-1.5 py-0.5 text-[9px] font-black text-clay sm:bottom-2 sm:right-2 sm:text-xs">
-                {occupancy.occupied}/{occupancy.total}
-              </span>
-              {holiday && <span className="mt-1 hidden truncate text-[10px] font-black text-sky-900 sm:block">{holiday.holidayName}</span>}
+              <span className="block max-w-full truncate text-[10px] font-black text-ink sm:text-sm">{weekday}</span>
+              <span className="mt-0.5 block text-lg font-black leading-none text-ink sm:text-3xl">{day}</span>
+              {holiday && <span className="mt-1 hidden max-w-full truncate text-[10px] font-black text-sky-900 sm:block">{holiday.holidayName}</span>}
+              <div className="absolute inset-x-1.5 bottom-1.5 sm:inset-x-2 sm:bottom-2">
+                <div className="h-1.5 overflow-hidden rounded-full bg-white/75 ring-1 ring-white/70 sm:h-2">
+                  <div className={`h-full rounded-full ${getOccupancyProgressColor(occupancy.occupied, occupancy.total)}`} style={{ width: `${occupancyPercent}%` }} />
+                </div>
+                <div className="mt-0.5 text-right text-[9px] font-black leading-none text-clay sm:text-[10px]">
+                  {occupancy.occupied}/{occupancy.total}
+                </div>
+              </div>
             </a>
           );
         })}
@@ -1309,16 +1331,23 @@ function BookingInventoryConfirmModal({
   );
 }
 
-function HolidayInfoBar({ holiday }: { holiday: BulgarianHolidayInfo | null }) {
+function HolidayInfoBar({ holiday, index, total }: { holiday: BulgarianHolidayInfo | null; index?: number; total?: number }) {
   return (
     <div className="my-2 min-h-[44px] rounded-2xl border border-sky-100 bg-sky-50/70 px-3 py-2 text-sm font-semibold text-clay">
       {holiday ? (
-        <p>
-          <span className="font-black text-sky-900">{formatHolidayDate(holiday.date)} - {holiday.holidayName}</span>
-          {holiday.leaveIdeaText && <span> · Идея за отпуск: {holiday.leaveIdeaText}</span>}
-        </p>
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+          <p>
+            <span className="font-black text-sky-900">{formatHolidayDate(holiday.date)} - {holiday.holidayName}</span>
+            {holiday.leaveIdeaText && <span> · Идея за отпуск: {holiday.leaveIdeaText}</span>}
+          </p>
+          {index && total && total > 1 && (
+            <span className="shrink-0 rounded-full bg-white/80 px-2 py-0.5 text-xs font-black text-sky-800 ring-1 ring-sky-100">
+              {index}/{total}
+            </span>
+          )}
+        </div>
       ) : (
-        <p className="text-sky-900/70">Посочи празничен ден, за да видиш идеи за отпуск.</p>
+        <p className="text-sky-900/70">Няма идеи за отпуск за този месец.</p>
       )}
     </div>
   );
@@ -1922,6 +1951,23 @@ function getCombinedDayOccupancy(reservations: Reservation[], isoDate: string): 
 
 function totalHotelCapacity(): number {
   return PROPERTIES.reduce((sum, property) => sum + property.rooms.length, 0);
+}
+
+function getMonthHolidayIdeas(month: string): BulgarianHolidayInfo[] {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const days = new Date(year, monthNumber, 0).getDate();
+  return Array.from({ length: days }, (_, index) => {
+    const iso = `${month}-${String(index + 1).padStart(2, "0")}`;
+    return getBulgarianHolidayInfo(iso);
+  })
+    .filter((holiday): holiday is BulgarianHolidayInfo => Boolean(holiday?.leaveIdeaText))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function getOccupancyProgressColor(occupied: number, total: number): string {
+  if (occupied <= 0) return "bg-emerald-500/70";
+  if (occupied >= total) return "bg-rose-600";
+  return "bg-amber-500";
 }
 
 function getOccupancyTone(occupied: number, total: number): { status: "free" | "partial" | "full"; className: string } {
