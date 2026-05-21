@@ -1513,18 +1513,19 @@ function TransactionsView({ data, month, setMonth, addRow, updateRow, removeRow 
           <h2 className="mb-1 text-2xl font-black text-ink">Приходи/Разходи</h2>
           <p className="text-sm font-medium text-clay">Ръчни приходи, разходи и списъци по избран месец.</p>
         </div>
-        <label className="font-bold text-clay">Месец
-          <input className="tap-target mt-1 w-full rounded-2xl border border-stone-200 bg-white px-3 outline-none focus:ring-2 focus:ring-brand-100 sm:w-48" type="month" value={month} onInput={(event) => setMonth(event.currentTarget.value)} onChange={(event) => setMonth(event.target.value)} />
+        <label className="flex w-full flex-col gap-2 rounded-2xl bg-cream p-3 text-sm font-black text-clay ring-1 ring-stone-200 sm:w-auto sm:min-w-56">
+          <span>Месец</span>
+          <input className="tap-target w-full rounded-2xl border border-stone-200 bg-white px-3 font-bold text-ink outline-none focus:ring-2 focus:ring-brand-100" type="month" value={month} onInput={(event) => setMonth(event.currentTarget.value)} onChange={(event) => setMonth(event.target.value)} />
         </label>
       </div>
       <div className="mb-4 grid gap-3 sm:grid-cols-2">
-        <div className="rounded-3xl bg-cream p-4 ring-1 ring-stone-200">
-          <div className="text-sm font-bold text-clay">Ръчни приходи за месеца</div>
-          <div className="text-2xl font-black text-emerald-800">{eurWhole(incomeTotal)}</div>
+        <div className="flex min-h-28 flex-col items-center justify-center rounded-3xl bg-cream p-4 text-center ring-1 ring-stone-200">
+          <div className="text-sm font-bold leading-tight text-clay">Ръчни приходи за месеца</div>
+          <div className="mt-3 text-2xl font-black leading-none text-emerald-800">{eurWhole(incomeTotal)}</div>
         </div>
-        <div className="rounded-3xl bg-cream p-4 ring-1 ring-stone-200">
-          <div className="text-sm font-bold text-clay">Разходи за месеца</div>
-          <div className="text-2xl font-black text-rose-700">{eurWhole(expenseTotal)}</div>
+        <div className="flex min-h-28 flex-col items-center justify-center rounded-3xl bg-cream p-4 text-center ring-1 ring-stone-200">
+          <div className="text-sm font-bold leading-tight text-clay">Разходи за месеца</div>
+          <div className="mt-3 text-2xl font-black leading-none text-rose-700">{eurWhole(expenseTotal)}</div>
         </div>
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
@@ -1549,8 +1550,9 @@ function FinanceView({ data }: { data: AppData }) {
           <h2 className="mb-1 text-2xl font-black text-ink">Финанси</h2>
           <p className="text-sm font-medium text-clay">Анализи и отчет по месеци.</p>
         </div>
-        <label className="font-bold text-clay">Месец
-          <input className="tap-target mt-1 w-full rounded-2xl border border-stone-200 bg-white px-3 outline-none focus:ring-2 focus:ring-brand-100 sm:w-48" type="month" value={selectedMonth} onInput={(event) => setSelectedMonth(event.currentTarget.value)} onChange={(event) => setSelectedMonth(event.target.value)} />
+        <label className="flex w-full flex-col gap-2 rounded-2xl bg-cream p-3 text-sm font-black text-clay ring-1 ring-stone-200 sm:w-auto sm:min-w-56">
+          <span>Месец</span>
+          <input className="tap-target w-full rounded-2xl border border-stone-200 bg-white px-3 font-bold text-ink outline-none focus:ring-2 focus:ring-brand-100" type="month" value={selectedMonth} onInput={(event) => setSelectedMonth(event.currentTarget.value)} onChange={(event) => setSelectedMonth(event.target.value)} />
         </label>
       </div>
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
@@ -1895,18 +1897,18 @@ function ReservationModal({ draft, setDraft, closeHref, onClose, onSave, onDelet
 
 function Kpi({ label, value, danger = false }: { label: string; value: number; danger?: boolean }) {
   return (
-    <div className="rounded-3xl border border-stone-200 bg-cream p-4 text-center shadow-sm">
-      <div className="text-sm font-bold text-clay">{label}</div>
-      <div className={`text-xl font-black ${danger ? "text-rose-700" : "text-ink"}`}>{eurWhole(value)}</div>
+    <div className="flex min-h-28 flex-col items-center justify-center rounded-3xl border border-stone-200 bg-cream p-4 text-center shadow-sm">
+      <div className="text-sm font-bold leading-tight text-clay">{label}</div>
+      <div className={`mt-3 text-2xl font-black leading-none ${danger ? "text-rose-700" : "text-ink"}`}>{eurWhole(value)}</div>
     </div>
   );
 }
 
 function KpiText({ label, value, danger = false }: { label: string; value: string; danger?: boolean }) {
   return (
-    <div className="rounded-3xl border border-stone-200 bg-cream p-4 text-center shadow-sm">
-      <div className="text-sm font-bold text-clay">{label}</div>
-      <div className={`text-xl font-black ${danger ? "text-rose-700" : "text-ink"}`}>{value}</div>
+    <div className="flex min-h-28 flex-col items-center justify-center rounded-3xl border border-stone-200 bg-cream p-4 text-center shadow-sm">
+      <div className="text-sm font-bold leading-tight text-clay">{label}</div>
+      <div className={`mt-3 text-2xl font-black leading-none ${danger ? "text-rose-700" : "text-ink"}`}>{value}</div>
     </div>
   );
 }
