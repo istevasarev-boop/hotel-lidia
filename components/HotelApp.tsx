@@ -9,7 +9,7 @@ import { activeOnDate, addDaysISO, eachNight, monthKey, normalizeCheckout, overl
 import { normalizeImportedData } from "@/domain/reservations/legacyAdapter";
 import { deleteReservationById, upsertReservation } from "@/domain/reservations/store";
 import { EMPTY_DATA, PROPERTIES, type AppData, type BookingTypeId, type Expense, type ManualIncome, type PropertyId, type Reservation, type RoomId } from "@/domain/reservations/types";
-import { reservationBalance } from "@/domain/finance/kpis";
+import { calculateOccupancyPercent, reservationBalance } from "@/domain/finance/kpis";
 import { getBulgarianHolidayInfo, type BulgarianHolidayInfo } from "@/domain/holidays/bgHolidayCalendar";
 import { formatBulgarianDateRange, formatBulgarianDayOrdinal } from "@/lib/bgDateFormat";
 import { eur } from "@/lib/currency";
@@ -132,6 +132,7 @@ export function HotelApp({
   const [backupStatus, setBackupStatus] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const handledInitialEditRef = useRef(false);
+  const latestDataRef = useRef(initialData);
 
   const reservations = useMemo(() => Object.values(data.reservations).sort((a, b) => a.checkin.localeCompare(b.checkin)), [data.reservations]);
   const urlModalDraft = !urlModalDismissed ? getUrlModalDraft({
@@ -156,6 +157,10 @@ export function HotelApp({
       }
     }
   }, []);
+
+  useEffect(() => {
+    latestDataRef.current = data;
+  }, [data]);
 
   useEffect(() => {
     if (!hasFirebaseConfig()) {
@@ -209,6 +214,20 @@ export function HotelApp({
       setSync("Грешка при зареждане");
     });
     refreshBackups();
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const interval = window.setInterval(() => {
+      createDailyBackupIfNeeded(latestDataRef.current, user.email || undefined)
+        .then((created) => {
+          if (created) refreshBackups();
+        })
+        .catch(() => undefined);
+    }, 60 * 60 * 1000);
+
+    return () => window.clearInterval(interval);
   }, [user]);
 
   useEffect(() => {
@@ -930,7 +949,7 @@ function CalendarView({
             <a
               key={iso}
               href={`/?tab=calendar&property=${propertyId}&month=${month}&day=${iso}`}
-              className={`tap-target min-h-[66px] rounded-2xl border p-1.5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow sm:min-h-[92px] sm:p-2 ${tone.className} ${isWeekend ? "ring-1 ring-amber-200/70" : ""} ${holiday ? "outline outline-1 outline-sky-200" : ""} ${isSelected ? "ring-2 ring-brand-600" : ""}`}
+              className={`tap-target relative min-h-[66px] rounded-2xl border p-1.5 pb-7 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow sm:min-h-[92px] sm:p-2 sm:pb-8 ${tone.className} ${isWeekend ? "ring-1 ring-amber-200/70" : ""} ${holiday ? "outline outline-1 outline-sky-200" : ""} ${isSelected ? "ring-2 ring-brand-600" : ""}`}
               title={getHolidayTooltipText(holiday)}
               onMouseEnter={() => {
                 if (holiday) setOpenHolidayDate(iso);
@@ -947,8 +966,8 @@ function CalendarView({
               }}
             >
               <span className="block truncate text-[10px] font-black text-ink sm:text-sm">{weekday}</span>
-              <span className="mt-0.5 block text-sm font-black text-ink sm:text-2xl">{formatBulgarianDayOrdinal(day)}</span>
-              <span className="mt-1 inline-flex rounded-full bg-white/75 px-1.5 py-0.5 text-[9px] font-black text-clay sm:text-xs">
+              <span className="mt-0.5 block text-sm font-black text-ink sm:text-2xl">{day}</span>
+              <span className="absolute bottom-1.5 right-1.5 inline-flex rounded-full bg-white/75 px-1.5 py-0.5 text-[9px] font-black text-clay sm:bottom-2 sm:right-2 sm:text-xs">
                 {occupancy.occupied}/{occupancy.total}
               </span>
               {holiday && <span className="mt-1 hidden truncate text-[10px] font-black text-sky-900 sm:block">{holiday.holidayName}</span>}
@@ -1492,6 +1511,7 @@ function FinanceView({ data }: { data: AppData }) {
   const [showSummary, setShowSummary] = useState(false);
   const kpis = calculateFinanceSummary(data, selectedMonth);
   const ratioLabel = formatExpenseRatio(kpis);
+  const occupancyLabel = formatPercent(calculateOccupancyPercent(data, selectedMonth));
 
   return (
     <section className="soft-card rounded-3xl p-4">
@@ -1504,11 +1524,12 @@ function FinanceView({ data }: { data: AppData }) {
           <input className="tap-target mt-1 w-full rounded-2xl border border-stone-200 bg-white px-3 outline-none focus:ring-2 focus:ring-brand-100 sm:w-48" type="month" value={selectedMonth} onInput={(event) => setSelectedMonth(event.currentTarget.value)} onChange={(event) => setSelectedMonth(event.target.value)} />
         </label>
       </div>
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
         <Kpi label="Общи Приходи" value={getFinanceRevenue(kpis)} />
         <Kpi label="Разходи" value={kpis.expenses} danger />
         <Kpi label="Нетно" value={kpis.net} />
         <KpiText label="Разходи / Приходи" value={ratioLabel} danger={kpis.expenses > 0} />
+        <KpiText label="Заетост" value={occupancyLabel} />
       </div>
       <MonthlyFinanceChart data={data} month={selectedMonth} />
       <div className="mt-4">
@@ -1527,9 +1548,9 @@ function MonthlyFinanceChart({ data, month }: { data: AppData; month: string }) 
   const ratioAxisMax = Math.max(100, Math.ceil((expenseRatio || 0) / 25) * 25);
   const ratioTop = expenseRatio === null ? null : `${100 - Math.min(expenseRatio, ratioAxisMax) / ratioAxisMax * 100}%`;
   const rows = [
-    { label: "Общи Приходи", value: getFinanceRevenue(kpis), color: "bg-emerald-600" },
+    { label: "Общи Приходи", value: getFinanceRevenue(kpis), color: "bg-orange-500" },
     { label: "Разходи", value: kpis.expenses, color: "bg-red-600" },
-    { label: "Нетно", value: kpis.net, color: "bg-stone-700" }
+    { label: "Нетно", value: kpis.net, color: "bg-emerald-600" }
   ];
   const maxValue = Math.max(1, ...rows.map((row) => Math.abs(row.value)));
   const guideValues = [maxValue, maxValue * 0.75, maxValue * 0.5, maxValue * 0.25, 0];
@@ -1625,9 +1646,9 @@ function YearToDateFinanceChart({ data, months, selectedMonth }: { data: AppData
     { reservationRevenue: 0, deposits: 0, manualIncome: 0, expenses: 0, net: 0 }
   );
   const chartRows = [
-    { label: "Общи Приходи", value: getFinanceRevenue(totals), color: "bg-emerald-600" },
+    { label: "Общи Приходи", value: getFinanceRevenue(totals), color: "bg-orange-500" },
     { label: "Разходи", value: totals.expenses, color: "bg-red-600" },
-    { label: "Нетно", value: totals.net, color: totals.net < 0 ? "bg-rose-700" : "bg-stone-700" },
+    { label: "Нетно", value: totals.net, color: totals.net < 0 ? "bg-rose-700" : "bg-emerald-600" },
   ];
   const hasData = chartRows.some((row) => Math.round(Math.abs(row.value)) > 0);
   const maxValue = Math.max(1, ...chartRows.map((row) => Math.abs(row.value)));

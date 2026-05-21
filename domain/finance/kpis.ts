@@ -1,5 +1,5 @@
-import { monthKey } from "@/domain/reservations/dateRange";
-import type { AppData, Reservation } from "@/domain/reservations/types";
+import { eachNight, monthKey } from "@/domain/reservations/dateRange";
+import { PROPERTIES, type AppData, type Reservation } from "@/domain/reservations/types";
 
 export type FinanceKpis = {
   reservationRevenue: number;
@@ -40,6 +40,27 @@ export function calculateFinanceKpis(data: AppData, month: string): FinanceKpis 
 
 export function reservationBalance(reservation: Reservation): number {
   return reservation.totalAmount - reservation.depositAmount;
+}
+
+export function calculateOccupancyPercent(data: AppData, month: string): number {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const daysInMonth = new Date(year, monthNumber, 0).getDate();
+  const totalAvailableRoomNights = 11 * daysInMonth;
+  if (!totalAvailableRoomNights) return 0;
+
+  const reservedRoomNights = Object.values(data.reservations)
+    .filter((reservation) => reservation.status !== "cancelled")
+    .reduce((total, reservation) => {
+      const roomsPerNight = reservation.rooms.includes("all")
+        ? PROPERTIES.find((property) => property.id === reservation.propertyId)?.rooms.length || 0
+        : new Set(reservation.rooms.map(String)).size;
+      const nightsInMonth = eachNight(reservation.checkin, reservation.checkout)
+        .filter((night) => monthKey(night) === month).length;
+
+      return total + roomsPerNight * nightsInMonth;
+    }, 0);
+
+  return Math.round((reservedRoomNights / totalAvailableRoomNights) * 100);
 }
 
 function sum(values: number[]): number {

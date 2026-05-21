@@ -33,6 +33,8 @@ export type BackupListItem = {
   summary: BackupSummary;
 };
 
+export const DAILY_BACKUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
 export async function createBackup(data: AppData, type: BackupType, createdBy?: string): Promise<BackupListItem> {
   const services = getFirebaseServices();
   if (!services) throw new Error("Firebase не е конфигуриран.");
@@ -74,11 +76,20 @@ export async function createBackupFromCurrent(type: BackupType, createdBy?: stri
 }
 
 export async function createDailyBackupIfNeeded(data: AppData, createdBy?: string): Promise<BackupListItem | null> {
-  const today = new Date().toISOString().slice(0, 10);
   const backups = await listBackups();
-  const exists = backups.some((backup) => backup.type === "daily" && backup.timestamp.slice(0, 10) === today);
-  if (exists) return null;
+  if (!shouldCreateDailyBackup(backups, new Date())) return null;
   return createBackup(data, "daily", createdBy);
+}
+
+export function shouldCreateDailyBackup(backups: Pick<BackupListItem, "type" | "timestamp">[], now = new Date()): boolean {
+  const latestDaily = backups
+    .filter((backup) => backup.type === "daily")
+    .map((backup) => Date.parse(backup.timestamp))
+    .filter((timestamp) => Number.isFinite(timestamp))
+    .sort((a, b) => b - a)[0];
+
+  if (!latestDaily) return true;
+  return now.getTime() - latestDaily >= DAILY_BACKUP_INTERVAL_MS;
 }
 
 export async function listBackups(): Promise<BackupListItem[]> {
