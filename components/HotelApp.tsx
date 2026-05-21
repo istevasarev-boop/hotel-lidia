@@ -14,6 +14,7 @@ import { getBulgarianHolidayInfo, type BulgarianHolidayInfo } from "@/domain/hol
 import { formatBulgarianDateRange, formatBulgarianDayOrdinal } from "@/lib/bgDateFormat";
 import { eur } from "@/lib/currency";
 import { createId } from "@/lib/ids";
+import { fetchWeeklyWeather, type DailyWeather } from "@/lib/weather";
 import { loadHotelData, saveHotelData } from "@/lib/firebase/db";
 import { hasFirebaseConfig } from "@/lib/firebase/client";
 import { listenAuth, logout } from "@/lib/firebase/auth";
@@ -678,16 +679,33 @@ function UpcomingView({
 }) {
   const today = todayISO();
   const tomorrow = addDaysISO(today, 1);
+  const weekDates = useMemo(() => getCurrentWeekDays(today), [today]);
+  const [weatherByDate, setWeatherByDate] = useState<Record<string, DailyWeather>>({});
   const activeReservations = reservations.filter((reservation) => reservation.status !== "cancelled");
   const todayArrivals = sortOperationalReservations(activeReservations.filter((reservation) => reservation.checkin === today));
   const tomorrowArrivals = sortOperationalReservations(activeReservations.filter((reservation) => reservation.checkin === tomorrow));
-  const week = getCurrentWeekDays(today).map((iso) => {
+  const week = weekDates.map((iso) => {
     const active = activeReservations.filter((reservation) => activeOnDate(reservation.checkin, reservation.checkout, iso));
     const arrivals = activeReservations.filter((reservation) => reservation.checkin === iso);
     const departures = activeReservations.filter((reservation) => reservation.checkout === iso);
     const noDeposit = active.some((reservation) => reservation.depositAmount <= 0);
     return { iso, active, arrivals, departures, noDeposit };
   });
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchWeeklyWeather(weekDates[0], weekDates[weekDates.length - 1])
+      .then((forecast) => {
+        if (!cancelled) setWeatherByDate(forecast);
+      })
+      .catch(() => {
+        if (!cancelled) setWeatherByDate({});
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [weekDates]);
 
   return (
     <section className="grid min-w-0 gap-4">
@@ -717,7 +735,10 @@ function UpcomingView({
             <article key={day.iso} className="min-w-[78vw] max-w-[20rem] shrink-0 snap-start rounded-3xl border border-stone-200 bg-cream p-4 shadow-sm sm:min-w-[260px] md:min-w-[240px]">
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <div className="text-lg font-black text-ink">{formatDayName(day.iso)}</div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-lg font-black text-ink">{formatDayName(day.iso)}</span>
+                    <WeatherIndicator weather={weatherByDate[day.iso]} />
+                  </div>
                   <div className="text-sm font-bold text-clay">{formatShortDate(day.iso)}</div>
                 </div>
                 {day.noDeposit && <span className="rounded-full bg-rose-100 px-2 py-1 text-xs font-black text-rose-800">Без капаро</span>}
@@ -757,6 +778,20 @@ function ArrivalGroup({ title, empty, reservations, onEdit }: { title: string; e
         ))}
       </div>
     </section>
+  );
+}
+
+function WeatherIndicator({ weather }: { weather?: DailyWeather }) {
+  if (!weather?.icon) return null;
+  const temperatures = weather.maxTemp !== null && weather.minTemp !== null
+    ? `${weather.maxTemp}° / ${weather.minTemp}°`
+    : "";
+
+  return (
+    <div className="inline-flex items-center gap-1 rounded-full bg-white/75 px-2 py-1 text-xs font-black text-clay ring-1 ring-stone-100">
+      <span aria-hidden="true" className="text-sm leading-none">{weather.icon}</span>
+      {temperatures && <span>{temperatures}</span>}
+    </div>
   );
 }
 
