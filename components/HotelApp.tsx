@@ -796,12 +796,12 @@ function WeatherIndicator({ weather }: { weather?: DailyWeather }) {
 }
 
 function CalendarWeatherHint({ weather }: { weather?: DailyWeather }) {
-  if (!weather?.icon) return null;
+  if (!weather?.icon) return <span aria-hidden="true" className="block h-3.5" />;
   const temperature = weather.maxTemp !== null ? `${weather.maxTemp}°` : "";
 
   return (
-    <span className="pointer-events-none absolute right-1 top-1 inline-flex items-center gap-0.5 rounded-full bg-white/70 px-1 py-0.5 text-[8px] font-black leading-none text-clay ring-1 ring-white/80 sm:right-1.5 sm:top-1.5 sm:px-1.5 sm:text-[10px]">
-      <span aria-hidden="true">{weather.icon}</span>
+    <span className="pointer-events-none inline-flex h-3.5 max-w-full items-center justify-center gap-0.5 overflow-hidden whitespace-nowrap text-[8px] font-bold leading-none text-clay/80 sm:h-4 sm:text-[10px]">
+      <span aria-hidden="true" className="text-[9px] sm:text-xs">{weather.icon}</span>
       {temperature && <span>{temperature}</span>}
     </span>
   );
@@ -1013,7 +1013,7 @@ function CalendarView({
       </div>
 
       <div className="mt-1 grid grid-cols-7 gap-1 sm:gap-2">
-        {Array.from({ length: firstOffset }).map((_, index) => <div className="min-h-[66px] rounded-2xl bg-stone-50/70 sm:min-h-[92px]" key={`empty-${index}`} />)}
+        {Array.from({ length: firstOffset }).map((_, index) => <div className="h-[98px] rounded-2xl bg-stone-50/70 sm:h-[128px]" key={`empty-${index}`} />)}
         {Array.from({ length: days }).map((_, index) => {
           const day = index + 1;
           const iso = `${month}-${String(day).padStart(2, "0")}`;
@@ -1032,7 +1032,7 @@ function CalendarView({
             <a
               key={iso}
               href={`/?tab=calendar&property=${propertyId}&month=${month}&day=${iso}`}
-              className={`tap-target relative flex min-h-[66px] flex-col items-center justify-center rounded-2xl border p-1.5 pb-8 text-center shadow-sm transition hover:-translate-y-0.5 hover:shadow sm:min-h-[92px] sm:p-2 sm:pb-9 ${tone.className} ${isWeekend ? "ring-1 ring-amber-200/70" : ""} ${holiday ? "outline outline-1 outline-sky-200" : ""} ${isSelected ? "ring-2 ring-brand-600" : ""}`}
+              className={`tap-target grid h-[98px] min-w-0 grid-rows-[14px_1fr_auto] overflow-hidden rounded-2xl border p-1.5 text-center shadow-sm transition hover:-translate-y-0.5 hover:shadow sm:h-[128px] sm:grid-rows-[16px_1fr_auto] sm:p-2 ${tone.className} ${isWeekend ? "ring-1 ring-amber-200/70" : ""} ${holiday ? "outline outline-1 outline-sky-200" : ""} ${isSelected ? "ring-2 ring-brand-600" : ""}`}
               title={getHolidayTooltipText(holiday)}
               onMouseEnter={() => {
                 if (holiday) setOpenHolidayDate(iso);
@@ -1048,15 +1048,21 @@ function CalendarView({
                 if (holiday) setOpenHolidayDate(iso);
               }}
             >
-              <CalendarWeatherHint weather={weather} />
-              <span className="block max-w-full truncate text-[10px] font-black text-ink sm:text-sm">{weekday}</span>
-              <span className="mt-0.5 block text-lg font-black leading-none text-ink sm:text-3xl">{day}</span>
-              {holiday && <span className="mt-1 hidden max-w-full truncate text-[10px] font-black text-sky-900 sm:block">{holiday.holidayName}</span>}
-              <div className="absolute inset-x-1.5 bottom-1.5 sm:inset-x-2 sm:bottom-2">
-                <div className="h-1.5 overflow-hidden rounded-full bg-white/75 ring-1 ring-white/70 sm:h-2">
+              <div className="flex min-w-0 items-start justify-center overflow-hidden">
+                <CalendarWeatherHint weather={weather} />
+              </div>
+              <div className="flex min-w-0 flex-col items-center justify-center px-0.5">
+                <span className="block w-full truncate text-[10px] font-bold leading-tight text-ink sm:text-xs">{weekday}</span>
+                <span className="mt-0.5 block text-[22px] font-black leading-none text-ink sm:text-3xl">{day}</span>
+                <span className={`mt-0.5 block h-3 w-full truncate text-[8px] font-bold leading-3 text-sky-900 sm:h-4 sm:text-[10px] ${holiday ? "" : "opacity-0"}`}>
+                  {holiday?.holidayName || "."}
+                </span>
+              </div>
+              <div className="w-full px-0.5 pb-0.5">
+                <div className="h-1.5 overflow-hidden rounded-full bg-white/80 ring-1 ring-white/70 sm:h-2">
                   <div className={`h-full rounded-full ${getOccupancyProgressColor(occupancy.occupied, occupancy.total)}`} style={{ width: `${occupancyPercent}%` }} />
                 </div>
-                <div className="mt-0.5 text-right text-[9px] font-black leading-none text-clay sm:text-[10px]">
+                <div className="mt-1 text-right text-[8px] font-bold leading-none text-clay sm:text-[10px]">
                   {occupancy.occupied}/{occupancy.total}
                 </div>
               </div>
