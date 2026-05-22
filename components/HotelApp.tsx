@@ -14,7 +14,7 @@ import { getBulgarianHolidayInfo, type BulgarianHolidayInfo } from "@/domain/hol
 import { formatBulgarianDateRange, formatBulgarianDayOrdinal } from "@/lib/bgDateFormat";
 import { eur } from "@/lib/currency";
 import { createId } from "@/lib/ids";
-import { fetchWeeklyWeather, type DailyWeather } from "@/lib/weather";
+import { fetchCalendarWeather, fetchWeeklyWeather, type DailyWeather } from "@/lib/weather";
 import { loadHotelData, saveHotelData } from "@/lib/firebase/db";
 import { hasFirebaseConfig } from "@/lib/firebase/client";
 import { listenAuth, logout } from "@/lib/firebase/auth";
@@ -795,6 +795,18 @@ function WeatherIndicator({ weather }: { weather?: DailyWeather }) {
   );
 }
 
+function CalendarWeatherHint({ weather }: { weather?: DailyWeather }) {
+  if (!weather?.icon) return null;
+  const temperature = weather.maxTemp !== null ? `${weather.maxTemp}°` : "";
+
+  return (
+    <span className="pointer-events-none absolute right-1 top-1 inline-flex items-center gap-0.5 rounded-full bg-white/70 px-1 py-0.5 text-[8px] font-black leading-none text-clay ring-1 ring-white/80 sm:right-1.5 sm:top-1.5 sm:px-1.5 sm:text-[10px]">
+      <span aria-hidden="true">{weather.icon}</span>
+      {temperature && <span>{temperature}</span>}
+    </span>
+  );
+}
+
 function ReservationCard({ reservation, onEdit }: { reservation: Reservation; onEdit: (reservation: Reservation) => void }) {
   return (
     <article className="rounded-3xl border border-stone-200 bg-cream p-5 text-left shadow-sm">
@@ -940,6 +952,7 @@ function CalendarView({
   const [year, monthNumber] = month.split("-").map(Number);
   const [openHolidayDate, setOpenHolidayDate] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(initialSelectedDate || null);
+  const [weatherByDate, setWeatherByDate] = useState<Record<string, DailyWeather>>({});
   const days = new Date(year, monthNumber, 0).getDate();
   const firstOffset = (new Date(year, monthNumber - 1, 1).getDay() + 6) % 7;
   const visibleReservations = reservations.filter((reservation) => overlapsMonth(reservation.checkin, reservation.checkout, month));
@@ -961,6 +974,23 @@ function CalendarView({
 
     return () => window.clearInterval(timer);
   }, [holidayIdeas.length]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const calendarStart = `${month}-01`;
+    const calendarEnd = `${month}-${String(days).padStart(2, "0")}`;
+    fetchCalendarWeather(calendarStart, calendarEnd)
+      .then((forecast) => {
+        if (!cancelled) setWeatherByDate(forecast);
+      })
+      .catch(() => {
+        if (!cancelled) setWeatherByDate({});
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [days, month]);
 
   return (
     <section className="soft-card rounded-3xl p-3 sm:p-4">
@@ -996,6 +1026,7 @@ function CalendarView({
           const occupancyPercent = Math.min(100, Math.max(0, (occupancy.occupied / occupancy.total) * 100));
           const isWeekend = weekdayIndex === 5 || weekdayIndex === 6;
           const isSelected = selectedDate === iso;
+          const weather = weatherByDate[iso];
 
           return (
             <a
@@ -1017,6 +1048,7 @@ function CalendarView({
                 if (holiday) setOpenHolidayDate(iso);
               }}
             >
+              <CalendarWeatherHint weather={weather} />
               <span className="block max-w-full truncate text-[10px] font-black text-ink sm:text-sm">{weekday}</span>
               <span className="mt-0.5 block text-lg font-black leading-none text-ink sm:text-3xl">{day}</span>
               {holiday && <span className="mt-1 hidden max-w-full truncate text-[10px] font-black text-sky-900 sm:block">{holiday.holidayName}</span>}
@@ -1576,7 +1608,7 @@ function FinanceView({ data }: { data: AppData }) {
   const [showSummary, setShowSummary] = useState(false);
   const kpis = calculateFinanceSummary(data, selectedMonth);
   const ratioLabel = formatExpenseRatio(kpis);
-  const occupancyLabel = formatPercent(calculateOccupancyPercent(data, selectedMonth));
+  const occupancyPercent = calculateOccupancyPercent(data, selectedMonth);
 
   return (
     <section className="soft-card rounded-3xl p-4">
@@ -1595,7 +1627,7 @@ function FinanceView({ data }: { data: AppData }) {
         <Kpi label="Разходи" value={kpis.expenses} danger />
         <Kpi label="Нетно" value={kpis.net} />
         <KpiText label="Разходи / Приходи" value={ratioLabel} danger={kpis.expenses > 0} />
-        <KpiText label="Заетост" value={occupancyLabel} />
+        <OccupancyKpi value={occupancyPercent} />
       </div>
       <MonthlyFinanceChart data={data} month={selectedMonth} />
       <div className="mt-4">
@@ -1944,6 +1976,22 @@ function KpiText({ label, value, danger = false }: { label: string; value: strin
     <div className="flex min-h-28 flex-col items-center justify-center rounded-3xl border border-stone-200 bg-cream p-4 text-center shadow-sm">
       <div className="text-sm font-bold leading-tight text-clay">{label}</div>
       <div className={`mt-3 text-2xl font-black leading-none ${danger ? "text-rose-700" : "text-ink"}`}>{value}</div>
+    </div>
+  );
+}
+
+function OccupancyKpi({ value }: { value: number }) {
+  const occupancy = Number.isFinite(value) ? Math.max(0, value) : 0;
+  const progress = Math.min(100, occupancy);
+  const color = progress < 30 ? "bg-rose-600" : progress <= 75 ? "bg-orange-500" : "bg-emerald-600";
+
+  return (
+    <div className="flex min-h-28 flex-col items-center justify-center rounded-3xl border border-stone-200 bg-cream p-4 text-center shadow-sm">
+      <div className="text-sm font-bold leading-tight text-clay">Заетост</div>
+      <div className="mt-3 text-2xl font-black leading-none text-ink">{formatPercent(occupancy)}</div>
+      <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-white/85 ring-1 ring-stone-200">
+        <div className={`h-full rounded-full ${color}`} style={{ width: `${progress}%` }} />
+      </div>
     </div>
   );
 }

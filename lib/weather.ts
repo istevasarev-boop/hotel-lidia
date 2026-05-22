@@ -26,7 +26,25 @@ export const weatherLocation = {
 };
 
 export async function fetchWeeklyWeather(startDate: string, endDate: string): Promise<Record<string, DailyWeather>> {
-  const cacheKey = `${weatherLocation.latitude},${weatherLocation.longitude}:${startDate}:${endDate}`;
+  return fetchWeatherFromEndpoint("https://api.open-meteo.com/v1/forecast", startDate, endDate, "weekly");
+}
+
+export async function fetchCalendarWeather(startDate: string, endDate: string): Promise<Record<string, DailyWeather>> {
+  const cacheKey = `calendar:${weatherLocation.latitude},${weatherLocation.longitude}:${startDate}:${endDate}`;
+  const cached = readWeatherCache(cacheKey);
+  if (cached) return cached;
+
+  const params = new URLSearchParams({ start: startDate, end: endDate });
+  const response = await fetch(`/api/weather/calendar?${params.toString()}`, { cache: "no-store" });
+  if (!response.ok) throw new Error(`Calendar weather failed: ${response.status}`);
+
+  const data = toWeatherMap(await response.json());
+  writeWeatherCache(cacheKey, data);
+  return data;
+}
+
+async function fetchWeatherFromEndpoint(endpoint: string, startDate: string, endDate: string, cacheScope: string): Promise<Record<string, DailyWeather>> {
+  const cacheKey = `${cacheScope}:${weatherLocation.latitude},${weatherLocation.longitude}:${startDate}:${endDate}`;
   const cached = readWeatherCache(cacheKey);
   if (cached) return cached;
 
@@ -38,7 +56,7 @@ export async function fetchWeeklyWeather(startDate: string, endDate: string): Pr
     start_date: startDate,
     end_date: endDate
   });
-  const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`, {
+  const response = await fetch(`${endpoint}?${params.toString()}`, {
     cache: "no-store"
   });
   if (!response.ok) throw new Error(`Weather forecast failed: ${response.status}`);
