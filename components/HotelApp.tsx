@@ -2,7 +2,7 @@
 
 import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-import { BarChart3, CalendarDays, ChevronLeft, ChevronRight, Download, Euro, Home, Plus, Search, Upload } from "lucide-react";
+import { BarChart3, CalendarDays, ChevronLeft, ChevronRight, Download, Euro, Eye, EyeOff, Home, LockKeyhole, Plus, Search, Upload } from "lucide-react";
 import { BOOKING_ROOM_TYPES, BOOKING_TYPE_LABELS, getSafeBookingInventory } from "@/domain/booking/availability";
 import { validateReservationConflict } from "@/domain/reservations/conflicts";
 import { activeOnDate, addDaysISO, eachNight, monthKey, normalizeCheckout, overlapsMonth, todayISO } from "@/domain/reservations/dateRange";
@@ -30,6 +30,12 @@ const ENABLE_BOOKING_MODE = false;
 function debugClick(action: string) {
   if (process.env.NODE_ENV !== "production") {
     console.debug(`[Hotel Lidia] ${action}`);
+  }
+}
+
+function pulsePrivacyHaptic() {
+  if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+    navigator.vibrate(12);
   }
 }
 
@@ -131,6 +137,7 @@ export function HotelApp({
   const [user, setUser] = useState<User | null>(null);
   const [backups, setBackups] = useState<BackupListItem[]>([]);
   const [backupStatus, setBackupStatus] = useState("");
+  const [financeUnlocked, setFinanceUnlocked] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const handledInitialEditRef = useRef(false);
   const latestDataRef = useRef(initialData);
@@ -538,7 +545,7 @@ export function HotelApp({
         </div>
       )}
       {tab === "transactions" && <TransactionsView data={data} month={month} setMonth={setMonth} addRow={addFinanceRow} updateRow={updateFinanceRow} removeRow={removeFinanceRow} />}
-      {tab === "finance" && <FinanceView data={data} />}
+      {tab === "finance" && <FinanceView data={data} unlocked={financeUnlocked} setUnlocked={setFinanceUnlocked} />}
 
       <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 gap-1 border-t border-stone-200 bg-cream/95 p-1.5 shadow-2xl backdrop-blur md:hidden">
         <TabButton active={tab === "upcoming"} href={`/?tab=upcoming&property=${activeProperty}`} icon={<Home size={19} />} label="Предстоящи" onClick={() => setTab("upcoming")} compact />
@@ -953,6 +960,7 @@ function CalendarView({
   const [openHolidayDate, setOpenHolidayDate] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(initialSelectedDate || null);
   const [weatherByDate, setWeatherByDate] = useState<Record<string, DailyWeather>>({});
+  const today = todayISO();
   const days = new Date(year, monthNumber, 0).getDate();
   const firstOffset = (new Date(year, monthNumber - 1, 1).getDay() + 6) % 7;
   const visibleReservations = reservations.filter((reservation) => overlapsMonth(reservation.checkin, reservation.checkout, month));
@@ -1026,13 +1034,14 @@ function CalendarView({
           const occupancyPercent = Math.min(100, Math.max(0, (occupancy.occupied / occupancy.total) * 100));
           const isWeekend = weekdayIndex === 5 || weekdayIndex === 6;
           const isSelected = selectedDate === iso;
+          const isToday = today === iso;
           const weather = weatherByDate[iso];
 
           return (
             <a
               key={iso}
               href={`/?tab=calendar&property=${propertyId}&month=${month}&day=${iso}`}
-              className={`tap-target grid h-[98px] min-w-0 grid-rows-[14px_1fr_auto] overflow-hidden rounded-2xl border p-1.5 text-center shadow-sm transition hover:-translate-y-0.5 hover:shadow sm:h-[128px] sm:grid-rows-[16px_1fr_auto] sm:p-2 ${tone.className} ${isWeekend ? "ring-1 ring-amber-200/70" : ""} ${holiday ? "outline outline-1 outline-sky-200" : ""} ${isSelected ? "ring-2 ring-brand-600" : ""}`}
+              className={`tap-target grid h-[98px] min-w-0 grid-rows-[14px_1fr_auto] overflow-hidden rounded-2xl border p-1.5 text-center shadow-sm transition hover:-translate-y-0.5 hover:shadow sm:h-[128px] sm:grid-rows-[16px_1fr_auto] sm:p-2 ${tone.className} ${isWeekend ? "ring-1 ring-amber-200/70" : ""} ${holiday ? "outline outline-1 outline-sky-200" : ""} ${isToday ? "ring-2 ring-brand-500 ring-offset-1 ring-offset-white shadow-md" : ""} ${isSelected ? "ring-2 ring-brand-600" : ""}`}
               title={getHolidayTooltipText(holiday)}
               onMouseEnter={() => {
                 if (holiday) setOpenHolidayDate(iso);
@@ -1048,8 +1057,13 @@ function CalendarView({
                 if (holiday) setOpenHolidayDate(iso);
               }}
             >
-              <div className="flex min-w-0 items-start justify-center overflow-hidden">
+              <div className="flex min-w-0 items-start justify-between gap-0.5 overflow-hidden">
                 <CalendarWeatherHint weather={weather} />
+                {isToday && (
+                  <span className="pointer-events-none inline-flex h-3.5 shrink-0 items-center rounded-full bg-brand-600 px-1 text-[7px] font-black leading-none text-white shadow-sm sm:h-4 sm:px-1.5 sm:text-[9px]">
+                    Днес
+                  </span>
+                )}
               </div>
               <div className="flex min-w-0 flex-col items-center justify-center px-0.5">
                 <span className="block w-full truncate text-[10px] font-bold leading-tight text-ink sm:text-xs">{weekday}</span>
@@ -1609,44 +1623,73 @@ function TransactionsView({ data, month, setMonth, addRow, updateRow, removeRow 
   );
 }
 
-function FinanceView({ data }: { data: AppData }) {
+function FinanceView({ data, unlocked, setUnlocked }: { data: AppData; unlocked: boolean; setUnlocked: (value: boolean) => void }) {
   const [selectedMonth, setSelectedMonth] = useState(monthKey(todayISO()));
   const [showSummary, setShowSummary] = useState(false);
+  const [confirmUnlock, setConfirmUnlock] = useState(false);
   const kpis = calculateFinanceSummary(data, selectedMonth);
   const ratioLabel = formatExpenseRatio(kpis);
   const occupancyPercent = calculateOccupancyPercent(data, selectedMonth);
 
+  function togglePrivacy() {
+    if (unlocked) {
+      pulsePrivacyHaptic();
+      setUnlocked(false);
+      return;
+    }
+
+    setConfirmUnlock(true);
+  }
+
+  function revealFinanceValues() {
+    pulsePrivacyHaptic();
+    setUnlocked(true);
+    setConfirmUnlock(false);
+  }
+
   return (
-    <section className="soft-card rounded-3xl p-4">
+    <section className="soft-card relative rounded-3xl p-4">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="mb-1 text-2xl font-black text-ink">Финанси</h2>
+          <h2 className="mb-1 inline-flex items-center gap-2 text-2xl font-black text-ink">
+            <LockKeyhole aria-hidden="true" className={`h-5 w-5 ${unlocked ? "text-emerald-700" : "text-clay"}`} />
+            Финанси
+          </h2>
           <p className="text-sm font-medium text-clay">Анализи и отчет по месеци.</p>
         </div>
-        <label className="flex w-full flex-col gap-2 rounded-2xl bg-cream p-3 text-sm font-black text-clay ring-1 ring-stone-200 sm:w-auto sm:min-w-56">
-          <span>Месец</span>
-          <input className="tap-target w-full rounded-2xl border border-stone-200 bg-white px-3 font-bold text-ink outline-none focus:ring-2 focus:ring-brand-100" type="month" value={selectedMonth} onInput={(event) => setSelectedMonth(event.currentTarget.value)} onChange={(event) => setSelectedMonth(event.target.value)} />
-        </label>
+        <div className="grid w-full gap-2 sm:w-auto sm:grid-cols-[auto_auto] sm:items-end">
+          <label className="flex w-full flex-col gap-2 rounded-2xl bg-cream p-3 text-sm font-black text-clay ring-1 ring-stone-200 sm:min-w-56">
+            <span>Месец</span>
+            <input className="tap-target w-full rounded-2xl border border-stone-200 bg-white px-3 font-bold text-ink outline-none focus:ring-2 focus:ring-brand-100" type="month" value={selectedMonth} onInput={(event) => setSelectedMonth(event.currentTarget.value)} onChange={(event) => setSelectedMonth(event.target.value)} />
+          </label>
+          <Button type="button" className="tap-target inline-flex items-center justify-center gap-2 rounded-2xl border border-stone-200 bg-white px-4 py-3 font-black text-clay shadow-sm transition hover:bg-cream" onClick={togglePrivacy} aria-pressed={unlocked}>
+            {unlocked ? <EyeOff aria-hidden="true" size={18} /> : <Eye aria-hidden="true" size={18} />}
+            {unlocked ? "Скрий" : "Покажи"}
+          </Button>
+        </div>
       </div>
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-        <Kpi label="Общи Приходи" value={getFinanceRevenue(kpis)} />
-        <Kpi label="Разходи" value={kpis.expenses} danger />
-        <Kpi label="Нетно" value={kpis.net} />
-        <KpiText label="Разходи / Приходи" value={ratioLabel} danger={kpis.expenses > 0} />
-        <OccupancyKpi value={occupancyPercent} />
+      <div className={`transition duration-300 ${unlocked ? "opacity-100" : "opacity-85 blur-[0.6px]"}`}>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+          <Kpi label="Общи Приходи" value={getFinanceRevenue(kpis)} revealed={unlocked} />
+          <Kpi label="Разходи" value={kpis.expenses} danger revealed={unlocked} />
+          <Kpi label="Нетно" value={kpis.net} revealed={unlocked} />
+          <KpiText label="Разходи / Приходи" value={ratioLabel} danger={kpis.expenses > 0} revealed={unlocked} mask="**%" />
+          <OccupancyKpi value={occupancyPercent} revealed={unlocked} />
+        </div>
+        <MonthlyFinanceChart data={data} month={selectedMonth} revealed={unlocked} />
+        <div className="mt-4">
+          <Button type="button" className="tap-target rounded-2xl border border-stone-200 bg-white px-4 py-2 font-black text-clay shadow-sm" onClick={() => setShowSummary((value) => !value)}>
+            {showSummary ? "Скрий обобщение" : "Покажи обобщение"}
+          </Button>
+        </div>
+        {showSummary && <FinanceSummaryTable data={data} selectedMonth={selectedMonth} revealed={unlocked} />}
       </div>
-      <MonthlyFinanceChart data={data} month={selectedMonth} />
-      <div className="mt-4">
-        <Button type="button" className="tap-target rounded-2xl border border-stone-200 bg-white px-4 py-2 font-black text-clay shadow-sm" onClick={() => setShowSummary((value) => !value)}>
-          {showSummary ? "Скрий обобщение" : "Покажи обобщение"}
-        </Button>
-      </div>
-      {showSummary && <FinanceSummaryTable data={data} selectedMonth={selectedMonth} />}
+      {confirmUnlock && <FinancePrivacyPrompt onCancel={() => setConfirmUnlock(false)} onReveal={revealFinanceValues} />}
     </section>
   );
 }
 
-function MonthlyFinanceChart({ data, month }: { data: AppData; month: string }) {
+function MonthlyFinanceChart({ data, month, revealed }: { data: AppData; month: string; revealed: boolean }) {
   const kpis = calculateFinanceSummary(data, month);
   const expenseRatio = getExpenseRatio(kpis);
   const ratioAxisMax = Math.max(100, Math.ceil((expenseRatio || 0) / 25) * 25);
@@ -1665,10 +1708,10 @@ function MonthlyFinanceChart({ data, month }: { data: AppData; month: string }) 
       <div className="overflow-x-auto pb-2">
         <div className="grid min-w-[560px] grid-cols-[70px_1fr_54px] gap-3">
           <div className="flex h-72 flex-col justify-between text-right text-xs font-bold text-clay">
-            {guideValues.map((value) => <span key={value}>{eurWhole(value)}</span>)}
+            {guideValues.map((value) => <span key={value}><FinanceValue text={eurWhole(value)} revealed={revealed} /></span>)}
           </div>
           <div className="relative flex h-72 items-end justify-around gap-5 border-b border-l border-stone-300 px-4">
-            {ratioTop && expenseRatio !== null && (
+            {revealed && ratioTop && expenseRatio !== null && (
               <div className="pointer-events-none absolute left-3 right-3 z-10 border-t-4 border-sky-600" style={{ top: ratioTop }}>
                 <span className="absolute -top-7 right-0 rounded-full bg-sky-50 px-2 py-1 text-xs font-black text-sky-800 ring-1 ring-sky-200">
                   Разходи/Приходи {formatPercent(expenseRatio)}
@@ -1676,22 +1719,22 @@ function MonthlyFinanceChart({ data, month }: { data: AppData; month: string }) 
               </div>
             )}
             {rows.map((row) => {
-              const height = Math.max(row.value === 0 ? 0 : 10, (Math.abs(row.value) / maxValue) * 250);
+              const height = revealed ? Math.max(row.value === 0 ? 0 : 10, (Math.abs(row.value) / maxValue) * 250) : 92;
               return (
                 <div key={row.label} className="flex min-w-[120px] flex-col items-center justify-end gap-2">
-                  <span className="whitespace-nowrap text-xs font-black text-clay">{eurWhole(row.value)}</span>
-                  <div className={`w-14 rounded-t-md ${row.color} ${row.value < 0 ? "opacity-70" : ""}`} style={{ height }} title={`${row.label}: ${eurWhole(row.value)}`} />
+                  <span className="whitespace-nowrap text-xs font-black text-clay"><FinanceValue text={eurWhole(row.value)} revealed={revealed} /></span>
+                  <div className={`w-14 rounded-t-md transition duration-300 ${revealed ? row.color : "bg-stone-300"} ${revealed && row.value < 0 ? "opacity-70" : ""}`} style={{ height }} title={revealed ? `${row.label}: ${eurWhole(row.value)}` : undefined} />
                   <span className="min-h-10 text-center text-xs font-black text-clay">{row.label}</span>
                 </div>
               );
             })}
           </div>
           <div className="flex h-72 flex-col justify-between text-xs font-bold text-sky-800">
-            <span>{ratioAxisMax}%</span>
-            <span>{Math.round(ratioAxisMax * 0.75)}%</span>
-            <span>{Math.round(ratioAxisMax * 0.5)}%</span>
-            <span>{Math.round(ratioAxisMax * 0.25)}%</span>
-            <span>0%</span>
+            <span><FinanceValue text={`${ratioAxisMax}%`} revealed={revealed} mask="**%" /></span>
+            <span><FinanceValue text={`${Math.round(ratioAxisMax * 0.75)}%`} revealed={revealed} mask="**%" /></span>
+            <span><FinanceValue text={`${Math.round(ratioAxisMax * 0.5)}%`} revealed={revealed} mask="**%" /></span>
+            <span><FinanceValue text={`${Math.round(ratioAxisMax * 0.25)}%`} revealed={revealed} mask="**%" /></span>
+            <span><FinanceValue text="0%" revealed={revealed} mask="**%" /></span>
           </div>
         </div>
       </div>
@@ -1699,7 +1742,7 @@ function MonthlyFinanceChart({ data, month }: { data: AppData; month: string }) 
   );
 }
 
-function FinanceSummaryTable({ data, selectedMonth }: { data: AppData; selectedMonth: string }) {
+function FinanceSummaryTable({ data, selectedMonth, revealed }: { data: AppData; selectedMonth: string; revealed: boolean }) {
   const months = getFinanceMonths(data, selectedMonth);
   return (
     <div className="mt-4 rounded-3xl bg-cream p-4 ring-1 ring-stone-200">
@@ -1720,21 +1763,21 @@ function FinanceSummaryTable({ data, selectedMonth }: { data: AppData; selectedM
               return (
                 <tr key={monthValue} className={monthValue === selectedMonth ? "bg-brand-50" : "bg-white"}>
                   <td className="rounded-l-2xl px-3 py-3 font-black text-ink">{formatMonthLabel(monthValue)}</td>
-                  <td className="px-3 py-3 font-bold">{eurWhole(getFinanceRevenue(row))}</td>
-                  <td className="px-3 py-3 font-bold text-red-700">{eurWhole(row.expenses)}</td>
-                  <td className="rounded-r-2xl px-3 py-3 font-black">{eurWhole(row.net)}</td>
+                  <td className="px-3 py-3 font-bold"><FinanceValue text={eurWhole(getFinanceRevenue(row))} revealed={revealed} /></td>
+                  <td className="px-3 py-3 font-bold text-red-700"><FinanceValue text={eurWhole(row.expenses)} revealed={revealed} /></td>
+                  <td className="rounded-r-2xl px-3 py-3 font-black"><FinanceValue text={eurWhole(row.net)} revealed={revealed} /></td>
                 </tr>
               );
             })}
           </tbody>
         </table>
       </div>
-      <YearToDateFinanceChart data={data} months={months} selectedMonth={selectedMonth} />
+      <YearToDateFinanceChart data={data} months={months} selectedMonth={selectedMonth} revealed={revealed} />
     </div>
   );
 }
 
-function YearToDateFinanceChart({ data, months, selectedMonth }: { data: AppData; months: string[]; selectedMonth: string }) {
+function YearToDateFinanceChart({ data, months, selectedMonth, revealed }: { data: AppData; months: string[]; selectedMonth: string; revealed: boolean }) {
   const selectedYear = selectedMonth.slice(0, 4);
   const rows = months
     .filter((monthValue) => monthValue.startsWith(selectedYear + "-"))
@@ -1767,11 +1810,11 @@ function YearToDateFinanceChart({ data, months, selectedMonth }: { data: AppData
         <div className="overflow-x-auto pb-2">
           <div className="flex min-w-[460px] items-end justify-around gap-5 border-b border-stone-300 px-4 pt-4">
             {chartRows.map((row) => {
-              const height = Math.max(row.value === 0 ? 0 : 12, (Math.abs(row.value) / maxValue) * 220);
+              const height = revealed ? Math.max(row.value === 0 ? 0 : 12, (Math.abs(row.value) / maxValue) * 220) : 88;
               return (
                 <div key={row.label} className="flex min-w-[100px] flex-col items-center justify-end gap-2">
-                  <span className="whitespace-nowrap text-xs font-black text-clay">{eurWhole(row.value)}</span>
-                  <div className={`w-16 rounded-t-md ${row.color} ${row.value < 0 ? "rounded-b-md rounded-t-none opacity-80" : ""}`} style={{ height }} title={`${row.label}: ${eurWhole(row.value)}`} />
+                  <span className="whitespace-nowrap text-xs font-black text-clay"><FinanceValue text={eurWhole(row.value)} revealed={revealed} /></span>
+                  <div className={`w-16 rounded-t-md transition duration-300 ${revealed ? row.color : "bg-stone-300"} ${revealed && row.value < 0 ? "rounded-b-md rounded-t-none opacity-80" : ""}`} style={{ height }} title={revealed ? `${row.label}: ${eurWhole(row.value)}` : undefined} />
                   <span className="min-h-10 text-center text-xs font-black text-clay">{row.label}</span>
                 </div>
               );
@@ -1968,25 +2011,60 @@ function ReservationModal({ draft, setDraft, closeHref, onClose, onSave, onDelet
   );
 }
 
-function Kpi({ label, value, danger = false }: { label: string; value: number; danger?: boolean }) {
+function FinancePrivacyPrompt({ onCancel, onReveal }: { onCancel: () => void; onReveal: () => void }) {
   return (
-    <div className="flex min-h-28 flex-col items-center justify-center rounded-3xl border border-stone-200 bg-cream p-4 text-center shadow-sm">
-      <div className="text-sm font-bold leading-tight text-clay">{label}</div>
-      <div className={`mt-3 text-2xl font-black leading-none ${danger ? "text-rose-700" : "text-ink"}`}>{eurWhole(value)}</div>
+    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-stone-950/35 p-0 backdrop-blur-sm sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="finance-privacy-title">
+      <div className="w-full rounded-t-3xl border border-white/80 bg-cream p-5 shadow-2xl sm:max-w-md sm:rounded-3xl">
+        <div className="flex items-start gap-3">
+          <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-brand-700 shadow-sm ring-1 ring-stone-200">
+            <LockKeyhole aria-hidden="true" size={21} />
+          </span>
+          <div>
+            <h3 id="finance-privacy-title" className="text-xl font-black text-ink">Покажи финансовите стойности?</h3>
+            <p className="mt-2 text-base font-semibold text-clay">Сигурни ли сте, че искате да покажете финансовите стойности?</p>
+          </div>
+        </div>
+        <div className="mt-5 grid gap-2 sm:grid-cols-2">
+          <Button type="button" className="tap-target rounded-2xl border border-stone-200 bg-white px-4 py-3 font-black text-clay shadow-sm" onClick={onCancel}>
+            Отказ
+          </Button>
+          <Button type="button" className="tap-target rounded-2xl bg-brand-600 px-4 py-3 font-black text-white shadow-sm" onClick={onReveal}>
+            Покажи
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
 
-function KpiText({ label, value, danger = false }: { label: string; value: string; danger?: boolean }) {
+function FinanceValue({ text, revealed, mask = "€ ****" }: { text: string; revealed: boolean; mask?: string }) {
+  return (
+    <span className="inline-grid min-w-[4.5rem] items-center justify-items-center whitespace-nowrap transition-opacity duration-300">
+      <span className={`col-start-1 row-start-1 transition-opacity duration-300 ${revealed ? "opacity-100" : "select-none opacity-0"}`} aria-hidden={!revealed}>{text}</span>
+      {!revealed && <span className="col-start-1 row-start-1 transition-opacity duration-300">{mask}</span>}
+    </span>
+  );
+}
+
+function Kpi({ label, value, danger = false, revealed }: { label: string; value: number; danger?: boolean; revealed: boolean }) {
   return (
     <div className="flex min-h-28 flex-col items-center justify-center rounded-3xl border border-stone-200 bg-cream p-4 text-center shadow-sm">
       <div className="text-sm font-bold leading-tight text-clay">{label}</div>
-      <div className={`mt-3 text-2xl font-black leading-none ${danger ? "text-rose-700" : "text-ink"}`}>{value}</div>
+      <div className={`mt-3 text-2xl font-black leading-none ${danger ? "text-rose-700" : "text-ink"}`}><FinanceValue text={eurWhole(value)} revealed={revealed} /></div>
     </div>
   );
 }
 
-function OccupancyKpi({ value }: { value: number }) {
+function KpiText({ label, value, danger = false, revealed, mask }: { label: string; value: string; danger?: boolean; revealed: boolean; mask?: string }) {
+  return (
+    <div className="flex min-h-28 flex-col items-center justify-center rounded-3xl border border-stone-200 bg-cream p-4 text-center shadow-sm">
+      <div className="text-sm font-bold leading-tight text-clay">{label}</div>
+      <div className={`mt-3 text-2xl font-black leading-none ${danger ? "text-rose-700" : "text-ink"}`}><FinanceValue text={value} revealed={revealed} mask={mask} /></div>
+    </div>
+  );
+}
+
+function OccupancyKpi({ value, revealed = true }: { value: number; revealed?: boolean }) {
   const occupancy = Number.isFinite(value) ? Math.max(0, value) : 0;
   const progress = Math.min(100, occupancy);
   const color = progress < 30 ? "bg-rose-600" : progress <= 75 ? "bg-orange-500" : "bg-emerald-600";
@@ -1994,9 +2072,9 @@ function OccupancyKpi({ value }: { value: number }) {
   return (
     <div className="flex min-h-28 flex-col items-center justify-center rounded-3xl border border-stone-200 bg-cream p-4 text-center shadow-sm">
       <div className="text-sm font-bold leading-tight text-clay">Заетост</div>
-      <div className="mt-3 text-2xl font-black leading-none text-ink">{formatPercent(occupancy)}</div>
+      <div className="mt-3 text-2xl font-black leading-none text-ink"><FinanceValue text={formatPercent(occupancy)} revealed={revealed} mask="**%" /></div>
       <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-white/85 ring-1 ring-stone-200">
-        <div className={`h-full rounded-full ${color}`} style={{ width: `${progress}%` }} />
+        <div className={`h-full rounded-full transition duration-300 ${revealed ? color : "bg-stone-300"}`} style={{ width: `${revealed ? progress : 42}%` }} />
       </div>
     </div>
   );
