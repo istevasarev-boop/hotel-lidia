@@ -612,6 +612,7 @@ export function HotelApp({
           data={data}
           month={month}
           financeUnlocked={financeUnlocked}
+          onCreateDraft={(draft) => openNewReservation(draft.propertyId, draft.checkin, (draft.rooms[0] as RoomId | "all") || "", draft)}
         />
       )}
 
@@ -925,7 +926,30 @@ function pickAssistantPrompts(count = 4): string[] {
     .map((item) => item.prompt);
 }
 
-function FloatingAssistant({ data, month, financeUnlocked }: { data: AppData; month: string; financeUnlocked: boolean }) {
+type ReservationFlowStep = "dates" | "property_rooms" | "guest_name" | "guest_phone" | "deposit" | "notes" | "confirm";
+type ReservationFlowData = {
+  checkin?: string;
+  checkout?: string;
+  propertyId?: PropertyId;
+  rooms?: Array<RoomId | "all">;
+  guestName?: string;
+  phone?: string;
+  depositAmount?: number;
+  notes?: string;
+};
+type ReservationFlowState = {
+  active: boolean;
+  step: ReservationFlowStep;
+  data: ReservationFlowData;
+};
+
+const initialReservationFlow: ReservationFlowState = {
+  active: false,
+  step: "dates",
+  data: {}
+};
+
+function FloatingAssistant({ data, month, financeUnlocked, onCreateDraft }: { data: AppData; month: string; financeUnlocked: boolean; onCreateDraft: (draft: ReservationDraft) => void }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -946,6 +970,7 @@ function FloatingAssistant({ data, month, financeUnlocked }: { data: AppData; mo
             data={data}
             month={month}
             financeUnlocked={financeUnlocked}
+            onCreateDraft={onCreateDraft}
             onClose={() => setOpen(false)}
           />
         </div>
@@ -954,9 +979,10 @@ function FloatingAssistant({ data, month, financeUnlocked }: { data: AppData; mo
   );
 }
 
-function HotelAssistant({ data, month, financeUnlocked, onClose }: { data: AppData; month: string; financeUnlocked: boolean; onClose: () => void }) {
+function HotelAssistant({ data, month, financeUnlocked, onCreateDraft, onClose }: { data: AppData; month: string; financeUnlocked: boolean; onCreateDraft: (draft: ReservationDraft) => void; onClose: () => void }) {
   const [query, setQuery] = useState("");
   const [answer, setAnswer] = useState("");
+  const [reservationFlow, setReservationFlow] = useState<ReservationFlowState>(initialReservationFlow);
   const [voiceSupported, setVoiceSupported] = useState(false);
   const [listening, setListening] = useState(false);
   const [voiceError, setVoiceError] = useState("");
@@ -970,6 +996,15 @@ function HotelAssistant({ data, month, financeUnlocked, onClose }: { data: AppDa
     if (!cleanQuery) return;
     debugClick("assistant ask");
     setQuery(cleanQuery);
+    const nextFlow = handleReservationFlowMessage(cleanQuery, reservationFlow, data, onCreateDraft);
+    if (nextFlow) {
+      setReservationFlow(nextFlow.flow);
+      setAnswer(nextFlow.answer);
+      if (nextFlow.closeAssistant) {
+        onClose();
+      }
+      return;
+    }
     const clarifyingQuestion = getAssistantClarifyingQuestion(cleanQuery);
     if (clarifyingQuestion) {
       setAnswer(clarifyingQuestion);
@@ -981,6 +1016,7 @@ function HotelAssistant({ data, month, financeUnlocked, onClose }: { data: AppDa
   function clearAssistant() {
     setQuery("");
     setAnswer("");
+    setReservationFlow(initialReservationFlow);
     setVoiceError("");
     stopAssistantSpeech();
   }
@@ -1118,6 +1154,33 @@ function HotelAssistant({ data, month, financeUnlocked, onClose }: { data: AppDa
         </Button>
       )}
 
+      {reservationFlow.active && (
+        <div className="mt-3 rounded-3xl border border-brand-100 bg-brand-50/60 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-sm font-black text-brand-900">Нова резервация</div>
+            <Button type="button" className="tap-target rounded-full bg-white px-3 py-1 text-xs font-black text-clay ring-1 ring-stone-200" onClick={() => {
+              setReservationFlow(initialReservationFlow);
+              setAnswer("Отказах подготовката на резервация.");
+              stopAssistantSpeech();
+            }}>
+              Отказ
+            </Button>
+          </div>
+          <div className="mt-2 flex gap-1 overflow-x-auto pb-1">
+            {[
+              ["dates", "Дати"],
+              ["property_rooms", "Стаи"],
+              ["guest_name", "Гост"],
+              ["guest_phone", "Телефон"],
+              ["deposit", "Капаро"]
+            ].map(([step, label]) => (
+              <span key={step} className={`shrink-0 rounded-full px-3 py-1 text-xs font-black ${reservationStepComplete(step as ReservationFlowStep, reservationFlow.data) ? "bg-emerald-100 text-emerald-900" : reservationFlow.step === step ? "bg-brand-600 text-white" : "bg-white text-clay ring-1 ring-stone-200"}`}>
+                {label}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="mt-3 flex snap-x gap-2 overflow-x-auto pb-1">
         {prompts.map((prompt) => (
           <Button
@@ -2974,6 +3037,279 @@ function formatMonthLabel(month: string): string {
   return `${names[Number(monthNumber) - 1] || monthNumber} ${year.slice(2)}`;
 }
 
+function handleReservationFlowMessage(
+  message: string,
+  flow: ReservationFlowState,
+  data: AppData,
+  onCreateDraft: (draft: ReservationDraft) => void
+): { flow: ReservationFlowState; answer: string; closeAssistant?: boolean } | null {
+  const normalized = normalizeGuestText(message);
+  if (isReservationFlowReset(normalized)) {
+    return { flow: initialReservationFlow, answer: "Започваме отначало. За кои дати е резервацията?" };
+  }
+  if (isReservationFlowCancel(normalized)) {
+    return { flow: initialReservationFlow, answer: "Отказах подготовката на резервация." };
+  }
+
+  if (!flow.active) {
+    if (!isReservationFlowStart(normalized)) return null;
+    return { flow: { active: true, step: "dates", data: {} }, answer: "За кои дати?" };
+  }
+
+  if (flow.step === "dates") {
+    const dates = parseReservationFlowDates(message);
+    if (!dates) {
+      return { flow, answer: "Кои точно дати? Например: 18 до 20 май." };
+    }
+    return {
+      flow: { active: true, step: "property_rooms", data: { ...flow.data, ...dates } },
+      answer: "За кой обект и кои стаи?"
+    };
+  }
+
+  if (flow.step === "property_rooms") {
+    const parsed = parseReservationFlowPropertyRooms(message);
+    if (!parsed.propertyId) {
+      return { flow, answer: "Вила Лидия или Къща Лидия?" };
+    }
+    if (!parsed.rooms.length) {
+      return { flow, answer: "Кои стаи? Например: стая 7, 7 и 8, или цялата вила." };
+    }
+    const property = PROPERTIES.find((item) => item.id === parsed.propertyId);
+    const invalidRooms = parsed.rooms.filter((room) => room !== "all" && !property?.rooms.includes(room));
+    if (invalidRooms.length) {
+      return { flow, answer: `Тези стаи не са за ${propertyName(parsed.propertyId)}: ${invalidRooms.join(", ")}. Кажи други стаи.` };
+    }
+    const tentativeDraft = buildReservationFlowDraft({ ...flow.data, propertyId: parsed.propertyId, rooms: parsed.rooms });
+    if (tentativeDraft) {
+      const conflict = validateReservationConflict({
+        id: "assistant-preview",
+        propertyId: tentativeDraft.propertyId,
+        rooms: tentativeDraft.rooms,
+        checkin: tentativeDraft.checkin,
+        checkout: tentativeDraft.checkout
+      }, Object.values(data.reservations));
+      if (!conflict.ok) {
+        return { flow, answer: conflict.message || "Тези стаи са заети за избраните дати. Кажи други стаи." };
+      }
+    }
+    return {
+      flow: { active: true, step: "guest_name", data: { ...flow.data, propertyId: parsed.propertyId, rooms: parsed.rooms } },
+      answer: "На кое име?"
+    };
+  }
+
+  if (flow.step === "guest_name") {
+    const guestName = message.trim();
+    if (guestName.length < 3) {
+      return { flow, answer: "Кажи име на госта." };
+    }
+    const nextData = { ...flow.data, guestName };
+    const memory = buildReservationFlowGuestMemoryHint(nextData, Object.values(data.reservations));
+    return {
+      flow: { active: true, step: "guest_phone", data: nextData },
+      answer: memory ? `${memory}\nТелефон?` : "Телефон?"
+    };
+  }
+
+  if (flow.step === "guest_phone") {
+    const phone = parseReservationFlowPhone(message);
+    if (!phone) {
+      return { flow, answer: "Кажи телефонен номер." };
+    }
+    const nextData = { ...flow.data, phone };
+    const memory = buildReservationFlowGuestMemoryHint(nextData, Object.values(data.reservations));
+    return {
+      flow: { active: true, step: "deposit", data: nextData },
+      answer: memory ? `${memory}\nИма ли капаро?` : "Има ли капаро?"
+    };
+  }
+
+  if (flow.step === "deposit") {
+    const depositAmount = parseReservationFlowAmount(message);
+    if (depositAmount === null) {
+      return { flow, answer: "Колко е капарото? Ако няма, кажи „няма“." };
+    }
+    return {
+      flow: { active: true, step: "notes", data: { ...flow.data, depositAmount } },
+      answer: "Има ли бележка? Ако няма, кажи „няма“."
+    };
+  }
+
+  if (flow.step === "notes") {
+    const notes = isNegativeAnswer(normalized) ? "" : message.trim();
+    const nextData = { ...flow.data, notes };
+    const draft = buildReservationFlowDraft(nextData);
+    if (!draft) {
+      return { flow: { active: true, step: "dates", data: nextData }, answer: "Липсват данни. Нека започнем от датите — за кои дати?" };
+    }
+    onCreateDraft(draft);
+    return {
+      flow: initialReservationFlow,
+      answer: "Готово — попълних формата. Прегледай и натисни Запази.",
+      closeAssistant: true
+    };
+  }
+
+  return null;
+}
+
+function isReservationFlowStart(value: string): boolean {
+  return /(направи|нова|добави|подготви|създай|искам).*резервац/.test(value);
+}
+
+function isReservationFlowCancel(value: string): boolean {
+  return /^(отказ|спри|стоп|затвори|не)$/.test(value.trim());
+}
+
+function isReservationFlowReset(value: string): boolean {
+  return /започни отначало|отначало|рестарт|reset/.test(value);
+}
+
+function isNegativeAnswer(value: string): boolean {
+  return /^(няма|не|без|no|не няма)$/.test(value.trim());
+}
+
+function reservationStepComplete(step: ReservationFlowStep, data: ReservationFlowData): boolean {
+  if (step === "dates") return Boolean(data.checkin && data.checkout);
+  if (step === "property_rooms") return Boolean(data.propertyId && data.rooms?.length);
+  if (step === "guest_name") return Boolean(data.guestName);
+  if (step === "guest_phone") return Boolean(data.phone);
+  if (step === "deposit") return data.depositAmount !== undefined;
+  return false;
+}
+
+function parseReservationFlowDates(message: string): { checkin: string; checkout: string } | null {
+  const normalized = normalizeGuestText(message)
+    .replace(/(\d{1,2})\s*(?:ти|ви|ри|ми)\b/g, "$1")
+    .replace(/[–—]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+  const today = todayISO();
+
+  const nights = normalized.match(/утре.*?(\d{1,2})\s*нощ/);
+  if (nights) {
+    const checkin = addDaysISO(today, 1);
+    return { checkin, checkout: addDaysISO(checkin, Number(nights[1])) };
+  }
+
+  if (normalized.includes("следващия уикенд") || normalized.includes("следващият уикенд")) {
+    const friday = nextWeekdayISO(5, true);
+    return { checkin: friday, checkout: addDaysISO(friday, 2) };
+  }
+
+  if (normalized.includes("петък") && normalized.includes("неделя")) {
+    const friday = nextWeekdayISO(5, false);
+    return { checkin: friday, checkout: addDaysISO(friday, 2) };
+  }
+
+  const rangeMatch = normalized.match(/(?:от\s*)?(\d{1,2})(?:(?:[./](\d{1,2})(?:[./](\d{4}))?)|\s+([а-я]+))?\s*(?:до|-)\s*(\d{1,2})(?:(?:[./](\d{1,2})(?:[./](\d{4}))?)|\s+([а-я]+))?/i);
+  if (!rangeMatch) return null;
+
+  const defaultYear = Number(today.slice(0, 4));
+  const defaultMonth = Number(today.slice(5, 7));
+  const startDay = Number(rangeMatch[1]);
+  const startMonth = Number(rangeMatch[2] || 0) || bgMonthNumber(rangeMatch[4]) || Number(rangeMatch[6] || 0) || bgMonthNumber(rangeMatch[7]) || defaultMonth;
+  const startYear = Number(rangeMatch[3] || 0) || defaultYear;
+  const endDay = Number(rangeMatch[5]);
+  const endMonth = Number(rangeMatch[6] || 0) || bgMonthNumber(rangeMatch[7]) || startMonth;
+  const endYear = Number(rangeMatch[8] || 0) || startYear;
+  const checkin = makeISODate(startYear, startMonth, startDay);
+  let checkout = makeISODate(endYear, endMonth, endDay);
+  if (checkin && checkout && checkout <= checkin && !rangeMatch[6] && !rangeMatch[7]) {
+    checkout = makeISODate(startMonth === 12 ? startYear + 1 : startYear, startMonth === 12 ? 1 : startMonth + 1, endDay);
+  }
+  return checkin && checkout && checkout > checkin ? { checkin, checkout } : null;
+}
+
+function parseReservationFlowPropertyRooms(message: string): { propertyId: PropertyId | null; rooms: Array<RoomId | "all"> } {
+  const normalized = normalizeGuestText(message);
+  const numbers = Array.from(new Set((normalized.match(/\b\d{1,2}\b/g) || []))).map((room) => room as RoomId);
+  let propertyId: PropertyId | null = null;
+  if (normalized.includes("къща") || normalized.includes("къщата") || normalized.includes("house")) propertyId = "house";
+  if (normalized.includes("вила") || normalized.includes("вилата") || normalized.includes("villa")) propertyId = "villa";
+  if (!propertyId && numbers.length) {
+    if (numbers.every((room) => ["1", "2", "3", "4"].includes(room))) propertyId = "house";
+    if (numbers.every((room) => ["5", "6", "7", "8", "9", "10", "11"].includes(room))) propertyId = "villa";
+  }
+  const whole = normalized.includes("цялата") || normalized.includes("цяла") || normalized.includes("целия") || normalized.includes("all");
+  return { propertyId, rooms: whole ? ["all"] : numbers };
+}
+
+function parseReservationFlowPhone(message: string): string {
+  const match = message.match(/(?:\+359|0)\s*[\d\s().-]{7,}/);
+  return match ? match[0].trim() : "";
+}
+
+function parseReservationFlowAmount(message: string): number | null {
+  const normalized = normalizeGuestText(message);
+  if (isNegativeAnswer(normalized)) return 0;
+  const amount = Number((normalized.match(/\d+(?:[.,]\d+)?/)?.[0] || "").replace(",", "."));
+  return Number.isFinite(amount) ? amount : null;
+}
+
+function buildReservationFlowDraft(flowData: ReservationFlowData): ReservationDraft | null {
+  if (!flowData.propertyId || !flowData.checkin || !flowData.checkout || !flowData.rooms?.length) return null;
+  return {
+    ...createReservationDraft(flowData.propertyId, flowData.checkin),
+    checkout: flowData.checkout,
+    rooms: flowData.rooms,
+    guestName: flowData.guestName || "",
+    phone: flowData.phone || "",
+    depositAmount: Number(flowData.depositAmount || 0),
+    totalAmount: 0,
+    notes: flowData.notes || ""
+  };
+}
+
+function buildReservationFlowGuestMemoryHint(flowData: ReservationFlowData, reservations: Reservation[]): string {
+  const draft = buildReservationFlowDraft({
+    propertyId: flowData.propertyId || "villa",
+    checkin: flowData.checkin || todayISO(),
+    checkout: flowData.checkout || addDaysISO(todayISO(), 1),
+    rooms: flowData.rooms?.length ? flowData.rooms : ["5"],
+    guestName: flowData.guestName,
+    phone: flowData.phone
+  });
+  if (!draft) return "";
+  const summary = buildGuestMemorySummary(findGuestMemoryMatches(draft, reservations));
+  if (!summary) return "";
+  return `Познат гост — идвал е ${summary.previousStays} пъти.`;
+}
+
+function bgMonthNumber(value?: string): number | null {
+  if (!value) return null;
+  const months: Record<string, number> = {
+    януари: 1,
+    февруари: 2,
+    март: 3,
+    април: 4,
+    май: 5,
+    юни: 6,
+    юли: 7,
+    август: 8,
+    септември: 9,
+    октомври: 10,
+    ноември: 11,
+    декември: 12
+  };
+  return months[normalizeGuestText(value)] || null;
+}
+
+function makeISODate(year: number, month: number, day: number): string | null {
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function nextWeekdayISO(targetDay: number, forceNextWeek: boolean): string {
+  const now = new Date();
+  const currentDay = now.getDay();
+  let delta = (targetDay - currentDay + 7) % 7;
+  if (delta === 0 || forceNextWeek) delta += 7;
+  return addDaysISO(todayISO(), delta);
+}
 function buildAssistantAnswer(query: string, data: AppData, month: string, financeUnlocked: boolean): string {
   const normalized = normalizeGuestText(query);
   if (normalized.includes("без капаро") || normalized.includes("капаро")) {
