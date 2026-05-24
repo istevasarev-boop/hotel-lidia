@@ -6,16 +6,27 @@ export const metadata: Metadata = {
   title: "Hotel Lidia",
   description: "Управление на резервации и финанси за Hotel Lidia",
   manifest: "/manifest.json",
+  applicationName: "Hotel Lidia",
+  icons: {
+    icon: "/icon.svg",
+    apple: "/icon.svg"
+  },
   appleWebApp: {
     capable: true,
-    title: "Hotel Lidia"
+    title: "Hotel Lidia",
+    statusBarStyle: "default"
+  },
+  formatDetection: {
+    telephone: true
   }
 };
 
 export const viewport: Viewport = {
-  themeColor: "#1f6fb2",
+  themeColor: "#2f855f",
+  colorScheme: "light",
   width: "device-width",
-  initialScale: 1
+  initialScale: 1,
+  viewportFit: "cover"
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

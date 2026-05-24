@@ -1,8 +1,8 @@
 "use client";
 
 import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
-import type { ButtonHTMLAttributes, ReactNode } from "react";
-import { BarChart3, CalendarDays, ChevronLeft, ChevronRight, Download, Euro, Eye, EyeOff, Home, LockKeyhole, Plus, Search, Upload } from "lucide-react";
+import type { ButtonHTMLAttributes, ReactNode, TouchEvent } from "react";
+import { BarChart3, CalendarDays, ChevronLeft, ChevronRight, Download, Euro, Eye, EyeOff, Home, LockKeyhole, Mic, Plus, Search, Upload } from "lucide-react";
 import { BOOKING_ROOM_TYPES, BOOKING_TYPE_LABELS, getSafeBookingInventory } from "@/domain/booking/availability";
 import { validateReservationConflict } from "@/domain/reservations/conflicts";
 import { activeOnDate, addDaysISO, eachNight, monthKey, normalizeCheckout, overlapsMonth, todayISO } from "@/domain/reservations/dateRange";
@@ -24,6 +24,22 @@ import type { User } from "firebase/auth";
 type Tab = "upcoming" | "calendar" | "transactions" | "finance";
 type ListFilter = "all" | "today" | "next7" | "month" | "noDeposit";
 type ReservationDraft = Omit<Reservation, "id" | "createdAt" | "updatedAt" | "status"> & { id?: string };
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+type SpeechRecognitionLike = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  maxAlternatives: number;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+type SpeechRecognitionEventLike = {
+  resultIndex: number;
+  results: ArrayLike<ArrayLike<{ transcript: string }>>;
+};
 const WHOLE_PROPERTY_LABEL = "цялата";
 const ENABLE_BOOKING_MODE = false;
 
@@ -60,11 +76,19 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
 });
 
 function AuthMessage({ title, text }: { title: string; text: string }) {
+  const loading = text.includes("Проверка") || text.includes("Зареж");
   return (
     <main className="mx-auto flex min-h-screen max-w-xl items-center px-4 py-8 text-ink">
       <section className="soft-card w-full rounded-3xl p-6 text-center">
         <h1 className="text-2xl font-black">{title}</h1>
         <p className="mt-2 text-base font-semibold text-clay">{text}</p>
+        {loading && (
+          <div className="mt-6 grid gap-3">
+            <div className="soft-skeleton mx-auto h-4 w-3/4 rounded-full" />
+            <div className="soft-skeleton mx-auto h-4 w-1/2 rounded-full" />
+            <div className="soft-skeleton h-12 rounded-2xl" />
+          </div>
+        )}
       </section>
     </main>
   );
@@ -138,11 +162,13 @@ export function HotelApp({
   const [backups, setBackups] = useState<BackupListItem[]>([]);
   const [backupStatus, setBackupStatus] = useState("");
   const [financeUnlocked, setFinanceUnlocked] = useState(false);
+  const [online, setOnline] = useState(true);
   const fileRef = useRef<HTMLInputElement>(null);
   const handledInitialEditRef = useRef(false);
   const latestDataRef = useRef(initialData);
 
   const reservations = useMemo(() => Object.values(data.reservations).sort((a, b) => a.checkin.localeCompare(b.checkin)), [data.reservations]);
+  const initialDataLoading = sync.includes("Зареж") && reservations.length === 0;
   const urlModalDraft = !urlModalDismissed ? getUrlModalDraft({
     data,
     initialEditReservationId,
@@ -169,6 +195,19 @@ export function HotelApp({
   useEffect(() => {
     latestDataRef.current = data;
   }, [data]);
+
+  useEffect(() => {
+    setOnline(typeof navigator === "undefined" ? true : navigator.onLine);
+    function updateOnlineStatus() {
+      setOnline(navigator.onLine);
+    }
+    window.addEventListener("online", updateOnlineStatus);
+    window.addEventListener("offline", updateOnlineStatus);
+    return () => {
+      window.removeEventListener("online", updateOnlineStatus);
+      window.removeEventListener("offline", updateOnlineStatus);
+    };
+  }, []);
 
   useEffect(() => {
     if (!hasFirebaseConfig()) {
@@ -283,25 +322,30 @@ export function HotelApp({
     };
 
     if (!reservation.rooms.length) {
+      pulsePrivacyHaptic();
       window.alert(`Изберете стая/и или ${WHOLE_PROPERTY_LABEL}.`);
       return;
     }
     if (!reservation.checkin) {
+      pulsePrivacyHaptic();
       window.alert("Изберете чек-ин дата.");
       return;
     }
     if (reservation.totalAmount && reservation.totalAmount < reservation.depositAmount) {
+      pulsePrivacyHaptic();
       window.alert("Общата сума не може да е по-малка от капарото.");
       return;
     }
 
     const conflict = validateReservationConflict(reservation, reservations);
     if (!conflict.ok) {
+      pulsePrivacyHaptic();
       window.alert(conflict.message || "Има застъпване с друга резервация.");
       return;
     }
 
     await persist(upsertReservation(data, reservation));
+    pulsePrivacyHaptic();
     setModalDraft(null);
   }
 
@@ -309,6 +353,7 @@ export function HotelApp({
     if (!window.confirm("Да изтрия ли резервацията?")) return;
     await createBackup(data, "before-delete", user?.email || undefined);
     await persist(deleteReservationById(data, id));
+    pulsePrivacyHaptic();
     setModalDraft(null);
   }
 
@@ -448,7 +493,7 @@ export function HotelApp({
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-7xl flex-col gap-3 px-3 pb-28 pt-3 text-ink sm:gap-4 sm:px-5 lg:pb-8">
+    <main className="mobile-app-shell mx-auto flex min-h-screen max-w-7xl flex-col gap-3 text-ink sm:gap-4">
       {tab === "upcoming" && (
         <header className="soft-card sticky top-2 z-20 rounded-2xl p-3 backdrop-blur sm:p-4">
         <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
@@ -457,6 +502,11 @@ export function HotelApp({
             <span className="inline-flex min-h-8 items-center rounded-full border border-emerald-100 bg-emerald-50 px-3 text-xs font-black text-emerald-800 shadow-sm">
                 {sync}
               </span>
+            {!online && (
+              <span className="inline-flex min-h-8 items-center rounded-full border border-amber-200 bg-amber-50 px-3 text-xs font-black text-amber-900 shadow-sm">
+                Офлайн режим
+              </span>
+            )}
           </div>
           <div className="hidden w-full grid-cols-1 gap-2 md:grid md:grid-cols-[auto_auto_auto_auto] lg:w-auto">
             <a href={`/?tab=${tab}&property=${activeProperty}&new=1`} className="tap-target inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-5 py-3 font-black text-white shadow-sm transition hover:bg-brand-700" onClick={(event) => {
@@ -508,11 +558,15 @@ export function HotelApp({
         <TabButton active={tab === "finance"} href={`/?tab=finance&property=${activeProperty}`} icon={<Euro size={18} />} label="Финанси" onClick={() => setTab("finance")} />
       </section>
 
-      {tab === "upcoming" && (
+      {initialDataLoading && <AppSectionSkeleton />}
+
+      {tab === "upcoming" && !initialDataLoading && (
         <UpcomingView
           month={month}
           propertyId={activeProperty}
           reservations={reservations}
+          data={data}
+          financeUnlocked={financeUnlocked}
           query={query}
           setQuery={setQuery}
           filter={listFilter}
@@ -521,7 +575,7 @@ export function HotelApp({
           onEdit={openEditReservation}
         />
       )}
-      {tab === "upcoming" && (
+      {tab === "upcoming" && !initialDataLoading && (
         <BackupTools
           backups={backups}
           status={backupStatus}
@@ -529,10 +583,11 @@ export function HotelApp({
           onRestoreBackup={handleRestoreBackup}
         />
       )}
-      {tab === "calendar" && (
+      {tab === "calendar" && !initialDataLoading && (
         <div className="grid gap-4">
           <CalendarView
             month={month}
+            setMonth={setMonth}
             propertyId={activeProperty}
             data={data}
             reservations={reservations}
@@ -544,10 +599,10 @@ export function HotelApp({
           />
         </div>
       )}
-      {tab === "transactions" && <TransactionsView data={data} month={month} setMonth={setMonth} addRow={addFinanceRow} updateRow={updateFinanceRow} removeRow={removeFinanceRow} />}
-      {tab === "finance" && <FinanceView data={data} unlocked={financeUnlocked} setUnlocked={setFinanceUnlocked} />}
+      {tab === "transactions" && !initialDataLoading && <TransactionsView data={data} month={month} setMonth={setMonth} addRow={addFinanceRow} updateRow={updateFinanceRow} removeRow={removeFinanceRow} />}
+      {tab === "finance" && !initialDataLoading && <FinanceView data={data} unlocked={financeUnlocked} setUnlocked={setFinanceUnlocked} />}
 
-      <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 gap-1 border-t border-stone-200 bg-cream/95 p-1.5 shadow-2xl backdrop-blur md:hidden">
+      <nav className="mobile-bottom-nav fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 gap-1 border-t border-stone-200 bg-cream/95 p-1.5 shadow-2xl backdrop-blur md:hidden">
         <TabButton active={tab === "upcoming"} href={`/?tab=upcoming&property=${activeProperty}`} icon={<Home size={19} />} label="Предстоящи" onClick={() => setTab("upcoming")} compact />
         <TabButton active={tab === "calendar"} href={`/?tab=calendar&property=${activeProperty}`} icon={<CalendarDays size={19} />} label="Календар" onClick={() => setTab("calendar")} compact />
         <TabButton active={tab === "transactions"} href={`/?tab=transactions&property=${activeProperty}`} icon={<Euro size={19} />} label="Приходи/Разходи" onClick={() => setTab("transactions")} compact />
@@ -599,6 +654,30 @@ function createFeedToken(): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+function AppSectionSkeleton() {
+  return (
+    <section className="soft-card rounded-3xl p-4">
+      <div className="mb-5 flex items-center justify-between gap-3">
+        <div className="grid flex-1 gap-2">
+          <div className="soft-skeleton h-6 w-44 rounded-full" />
+          <div className="soft-skeleton h-4 w-64 max-w-full rounded-full" />
+        </div>
+        <div className="soft-skeleton h-11 w-24 rounded-2xl" />
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {Array.from({ length: 6 }).map((_, index) => (
+          <div key={index} className="rounded-3xl border border-stone-100 bg-cream p-4 shadow-sm">
+            <div className="soft-skeleton h-5 w-2/3 rounded-full" />
+            <div className="soft-skeleton mt-4 h-4 w-full rounded-full" />
+            <div className="soft-skeleton mt-2 h-4 w-4/5 rounded-full" />
+            <div className="soft-skeleton mt-5 h-11 rounded-2xl" />
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function getUrlModalDraft({
   data,
   initialEditReservationId,
@@ -623,9 +702,7 @@ function getUrlModalDraft({
 
 function MonthPicker({ month, tab, propertyId, setMonth }: { month: string; tab: Tab; propertyId: PropertyId; setMonth: (value: string) => void }) {
   function shiftedMonth(delta: number) {
-    const [year, monthNumber] = month.split("-").map(Number);
-    const next = new Date(year, monthNumber - 1 + delta, 1);
-    return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`;
+    return shiftMonthKey(month, delta);
   }
 
   function hrefFor(nextMonth: string) {
@@ -650,6 +727,12 @@ function MonthPicker({ month, tab, propertyId, setMonth }: { month: string; tab:
   );
 }
 
+function shiftMonthKey(month: string, delta: number): string {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const next = new Date(year, monthNumber - 1 + delta, 1);
+  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`;
+}
+
 function TabButton({ active, href, icon, label, onClick, compact = false }: { active: boolean; href: string; icon: ReactNode; label: string; onClick: () => void; compact?: boolean }) {
   return (
     <a href={href} className={`tap-target flex min-w-0 items-center justify-center gap-2 rounded-xl px-2 py-2 text-center font-bold leading-tight transition ${active ? "bg-brand-600 text-white shadow-sm" : "bg-transparent text-clay hover:bg-white"} ${compact ? "flex-col gap-1 text-[11px]" : ""}`} onClick={(event) => {
@@ -668,6 +751,8 @@ function UpcomingView({
   month,
   propertyId,
   reservations,
+  data,
+  financeUnlocked,
   query,
   setQuery,
   filter,
@@ -678,6 +763,8 @@ function UpcomingView({
   month: string;
   propertyId: PropertyId;
   reservations: Reservation[];
+  data: AppData;
+  financeUnlocked: boolean;
   query: string;
   setQuery: (value: string) => void;
   filter: ListFilter;
@@ -760,6 +847,7 @@ function UpcomingView({
           ))}
         </div>
       </section>
+      <HotelAssistant data={data} month={month} financeUnlocked={financeUnlocked} />
       <ReservationsView
         month={month}
         propertyId={propertyId}
@@ -812,6 +900,119 @@ function CalendarWeatherHint({ weather }: { weather?: DailyWeather }) {
       <span aria-hidden="true" className="text-[9px] sm:text-xs">{weather.icon}</span>
       {temperature && <span>{temperature}</span>}
     </span>
+  );
+}
+
+function HotelAssistant({ data, month, financeUnlocked }: { data: AppData; month: string; financeUnlocked: boolean }) {
+  const [query, setQuery] = useState("");
+  const [answer, setAnswer] = useState<string>(() => buildAssistantAnswer("обобщение", data, month, financeUnlocked));
+  const [voiceSupported, setVoiceSupported] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [voiceError, setVoiceError] = useState("");
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const prompts = [
+    "Как върви месецът?",
+    "Кои дни са с ниска заетост?",
+    "Кои резервации са без капаро?",
+    "Кои уикенди са слаби?"
+  ];
+
+  function askAssistant(nextQuery: string) {
+    const cleanQuery = nextQuery.trim();
+    if (!cleanQuery) return;
+    debugClick("assistant ask");
+    setQuery(cleanQuery);
+    setAnswer(buildAssistantAnswer(cleanQuery, data, month, financeUnlocked));
+  }
+
+  useEffect(() => {
+    setVoiceSupported(Boolean(getSpeechRecognitionConstructor()));
+    return () => {
+      recognitionRef.current?.stop();
+      recognitionRef.current = null;
+    };
+  }, []);
+
+  function startAssistantVoice() {
+    const Recognition = getSpeechRecognitionConstructor();
+    if (!Recognition) {
+      setVoiceError("Гласовото въвеждане не се поддържа на това устройство.");
+      return;
+    }
+
+    recognitionRef.current?.stop();
+    const recognition = new Recognition();
+    recognition.lang = "bg-BG";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.onresult = (event) => {
+      const result = event.results[event.resultIndex]?.[0]?.transcript || "";
+      const clean = result.trim();
+      setQuery(clean);
+      setVoiceError("");
+      if (clean) askAssistant(clean);
+    };
+    recognition.onerror = () => {
+      setVoiceError("Не успях да разпозная въпроса. Опитай пак или напиши ръчно.");
+      setListening(false);
+    };
+    recognition.onend = () => setListening(false);
+    recognitionRef.current = recognition;
+    setListening(true);
+    setVoiceError("");
+    recognition.start();
+  }
+
+  return (
+    <section className="soft-card rounded-3xl p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 className="text-xl font-black text-ink">Асистент</h3>
+          <p className="mt-1 text-sm font-semibold text-clay">Локален помощник по реалните данни. Не изпраща телефони или гости към външни услуги.</p>
+        </div>
+        <span className="w-fit rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-800 ring-1 ring-emerald-100">MVP</span>
+      </div>
+
+      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+        <input
+          className="tap-target min-w-0 flex-1 rounded-2xl border border-stone-200 bg-white px-4 text-base font-semibold text-ink outline-none focus:ring-2 focus:ring-brand-100"
+          placeholder="Попитай: Как върви май?"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") askAssistant(query);
+          }}
+        />
+        {voiceSupported && (
+          <Button type="button" className="tap-target inline-flex items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-white px-4 py-3 font-black text-emerald-800 shadow-sm" onClick={startAssistantVoice} aria-label="Гласово въвеждане към асистента">
+            <Mic aria-hidden="true" size={18} />
+            {listening ? "Слушам..." : "Глас"}
+          </Button>
+        )}
+        <Button type="button" className="tap-target rounded-2xl bg-brand-600 px-5 py-3 font-black text-white shadow-sm" onClick={() => askAssistant(query || prompts[0])}>
+          Попитай
+        </Button>
+      </div>
+      {voiceError && <p className="mt-2 text-sm font-bold text-rose-700">{voiceError}</p>}
+
+      <div className="mt-3 flex snap-x gap-2 overflow-x-auto pb-1">
+        {prompts.map((prompt) => (
+          <Button
+            key={prompt}
+            type="button"
+            className="tap-target shrink-0 snap-start rounded-full border border-stone-200 bg-white px-4 py-2 text-sm font-black text-clay shadow-sm"
+            onClick={() => askAssistant(prompt)}
+          >
+            {prompt}
+          </Button>
+        ))}
+      </div>
+
+      <div className="mt-4 whitespace-pre-line rounded-3xl bg-cream p-4 text-base font-semibold leading-relaxed text-stone-800 ring-1 ring-stone-200">
+        {answer}
+      </div>
+    </section>
   );
 }
 
@@ -904,8 +1105,9 @@ function BackupTools({ backups, status, onCreateBackup, onRestoreBackup }: { bac
         </div>
       )}
       {pendingRestore && (
-        <div className="fixed inset-0 z-50 flex items-end bg-stone-950/45 p-0 sm:items-center sm:justify-center sm:p-4">
-          <div className="w-full rounded-t-3xl bg-cream p-5 shadow-2xl sm:max-w-lg sm:rounded-3xl">
+        <div className="modal-backdrop fixed inset-0 z-50 flex items-end bg-stone-950/45 p-0 sm:items-center sm:justify-center sm:p-4">
+          <div className="sheet-panel w-full rounded-t-3xl bg-cream p-5 shadow-2xl sm:max-w-lg sm:rounded-3xl">
+            <div className="sheet-handle sm:hidden" />
             <h3 className="text-xl font-black text-rose-800">⚠ Това ще презапише текущите данни.</h3>
             <p className="mt-2 text-base font-semibold text-clay">Преди restore автоматично ще се създаде safety backup.</p>
             <div className="mt-4 rounded-2xl bg-white p-4 text-sm font-bold text-stone-700">
@@ -934,6 +1136,7 @@ function BackupTools({ backups, status, onCreateBackup, onRestoreBackup }: { bac
 
 function CalendarView({
   month,
+  setMonth,
   propertyId,
   data,
   reservations,
@@ -944,6 +1147,7 @@ function CalendarView({
   initialSelectedDate
 }: {
   month: string;
+  setMonth: (value: string) => void;
   propertyId: PropertyId;
   data: AppData;
   reservations: Reservation[];
@@ -961,6 +1165,7 @@ function CalendarView({
   const [openHolidayDate, setOpenHolidayDate] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(initialSelectedDate || null);
   const [weatherByDate, setWeatherByDate] = useState<Record<string, DailyWeather>>({});
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const today = todayISO();
   const days = new Date(year, monthNumber, 0).getDate();
   const firstOffset = (new Date(year, monthNumber - 1, 1).getDay() + 6) % 7;
@@ -1001,8 +1206,40 @@ function CalendarView({
     };
   }, [days, month]);
 
+  function changeCalendarMonth(delta: number) {
+    const nextMonth = shiftMonthKey(month, delta);
+    debugClick(delta > 0 ? "swipe next month" : "swipe previous month");
+    window.history.replaceState(null, "", `/?tab=calendar&property=${propertyId}&month=${nextMonth}`);
+    setSelectedDate(null);
+    setMonth(nextMonth);
+  }
+
+  function handleCalendarTouchEnd(event: TouchEvent<HTMLElement>) {
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+    if (!start || event.changedTouches.length !== 1) return;
+
+    const touch = event.changedTouches[0];
+    const deltaX = touch.clientX - start.x;
+    const deltaY = touch.clientY - start.y;
+    if (Math.abs(deltaX) < 70 || Math.abs(deltaX) < Math.abs(deltaY) * 1.4) return;
+
+    changeCalendarMonth(deltaX < 0 ? 1 : -1);
+  }
+
   return (
-    <section className="soft-card rounded-3xl p-3 sm:p-4">
+    <section
+      className="soft-card rounded-3xl p-3 sm:p-4"
+      onTouchStart={(event) => {
+        if (event.touches.length === 1) {
+          touchStartRef.current = { x: event.touches[0].clientX, y: event.touches[0].clientY };
+        }
+      }}
+      onTouchCancel={() => {
+        touchStartRef.current = null;
+      }}
+      onTouchEnd={handleCalendarTouchEnd}
+    >
       <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-xl font-black text-ink sm:text-2xl">Календар</h2>
@@ -1122,8 +1359,9 @@ function DayDetailPanel({
   const dayReservations = reservations.filter((reservation) => activeOnDate(reservation.checkin, reservation.checkout, date));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end bg-stone-950/35 p-0 sm:items-center sm:justify-center sm:p-4" onClick={onClose}>
-      <section className="max-h-[88vh] w-full overflow-y-auto rounded-t-3xl bg-cream p-4 shadow-2xl sm:max-w-3xl sm:rounded-3xl sm:p-5" onClick={(event) => event.stopPropagation()}>
+    <div className="modal-backdrop fixed inset-0 z-50 flex items-end bg-stone-950/35 p-0 sm:items-center sm:justify-center sm:p-4" onClick={onClose}>
+      <section className="sheet-panel max-h-[88vh] w-full overflow-y-auto rounded-t-3xl bg-cream p-4 shadow-2xl sm:max-w-3xl sm:rounded-3xl sm:p-5" onClick={(event) => event.stopPropagation()}>
+        <div className="sheet-handle sm:hidden" />
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
             <h3 className="text-2xl font-black text-ink">{formatDayDetailTitle(date)}</h3>
@@ -1390,8 +1628,9 @@ function BookingInventoryConfirmModal({
   const finalSafe = Math.min(action.inventory, result.physicallyFreeInventory);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end bg-stone-950/45 sm:items-center sm:justify-center">
-      <div className="w-full rounded-t-3xl bg-cream p-5 shadow-2xl sm:max-w-lg sm:rounded-3xl">
+    <div className="modal-backdrop fixed inset-0 z-50 flex items-end bg-stone-950/45 sm:items-center sm:justify-center">
+      <div className="sheet-panel w-full rounded-t-3xl bg-cream p-5 shadow-2xl sm:max-w-lg sm:rounded-3xl">
+        <div className="sheet-handle sm:hidden" />
         <h3 className="text-xl font-black text-ink">Сигурен ли си?</h3>
         <p className="mt-2 text-base font-semibold text-clay">
           {action.inventory > 0
@@ -1631,6 +1870,20 @@ function FinanceView({ data, unlocked, setUnlocked }: { data: AppData; unlocked:
   const kpis = calculateFinanceSummary(data, selectedMonth);
   const ratioLabel = formatExpenseRatio(kpis);
   const occupancyPercent = calculateOccupancyPercent(data, selectedMonth);
+  const financeInsights = useMemo(() => buildMonthlyFinanceInsights(data, selectedMonth), [data, selectedMonth]);
+  const [insightIndex, setInsightIndex] = useState(0);
+
+  useEffect(() => {
+    setInsightIndex(0);
+  }, [selectedMonth, financeInsights.length]);
+
+  useEffect(() => {
+    if (financeInsights.length <= 1) return undefined;
+    const timer = window.setInterval(() => {
+      setInsightIndex((value) => (value + 1) % financeInsights.length);
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [financeInsights.length]);
 
   function togglePrivacy() {
     if (unlocked) {
@@ -1677,6 +1930,7 @@ function FinanceView({ data, unlocked, setUnlocked }: { data: AppData; unlocked:
           <KpiText label="Разходи / Приходи" value={ratioLabel} danger={kpis.expenses > 0} revealed={unlocked} mask="**%" />
           <OccupancyKpi value={occupancyPercent} revealed={unlocked} />
         </div>
+        <FinanceInsightCarousel insights={financeInsights} activeIndex={insightIndex} revealed={unlocked} />
         <MonthlyFinanceChart data={data} month={selectedMonth} revealed={unlocked} />
         <div className="mt-4">
           <Button type="button" className="tap-target rounded-2xl border border-stone-200 bg-white px-4 py-2 font-black text-clay shadow-sm" onClick={() => setShowSummary((value) => !value)}>
@@ -1687,6 +1941,25 @@ function FinanceView({ data, unlocked, setUnlocked }: { data: AppData; unlocked:
       </div>
       {confirmUnlock && <FinancePrivacyPrompt onCancel={() => setConfirmUnlock(false)} onReveal={revealFinanceValues} />}
     </section>
+  );
+}
+
+function FinanceInsightCarousel({ insights, activeIndex, revealed }: { insights: string[]; activeIndex: number; revealed: boolean }) {
+  if (!insights.length) return null;
+
+  return (
+    <div className="mt-4 rounded-3xl border border-sky-100 bg-sky-50/70 p-4 text-sm font-bold text-sky-950 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <p className="leading-relaxed">
+          {revealed ? insights[activeIndex] || insights[0] : "Отключи Финанси, за да видиш месечните обобщения."}
+        </p>
+        {revealed && insights.length > 1 && (
+          <span className="shrink-0 rounded-full bg-white/80 px-2 py-1 text-xs font-black text-sky-800 ring-1 ring-sky-100">
+            {activeIndex + 1}/{insights.length}
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -1935,8 +2208,8 @@ function ReservationModal({ draft, reservations, setDraft, closeHref, onClose, o
   }
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-end bg-stone-950/45 sm:items-center sm:justify-center">
-      <form className="max-h-[92vh] w-full overflow-auto rounded-t-3xl bg-cream p-3 shadow-2xl sm:max-w-2xl sm:rounded-3xl sm:p-4" onSubmit={(event) => {
+    <div className="modal-backdrop fixed inset-0 z-[70] flex items-end bg-stone-950/45 sm:items-center sm:justify-center">
+      <form className="sheet-panel max-h-[92vh] w-full overflow-auto rounded-t-3xl bg-cream p-3 shadow-2xl sm:max-w-2xl sm:rounded-3xl sm:p-4" onSubmit={(event) => {
         const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
         event.preventDefault();
         debugClick(submitter?.value === "delete" ? "reservation delete submit" : "reservation save submit");
@@ -1946,6 +2219,7 @@ function ReservationModal({ draft, reservations, setDraft, closeHref, onClose, o
         }
         onSave(draft);
       }}>
+        <div className="sheet-handle sm:hidden" />
         <div className="mb-4 flex items-center justify-between gap-2">
           <h2 className="text-lg font-black text-ink sm:text-xl">{draft.id ? "Редакция" : "Нова резервация"} · {property.name}</h2>
           <Button type="button" className="tap-target rounded-2xl border border-stone-200 bg-white px-3 py-2 font-black text-clay" onClick={() => {
@@ -1988,6 +2262,7 @@ function ReservationModal({ draft, reservations, setDraft, closeHref, onClose, o
           </div>
         </FormSection>
         {guestMemory && <GuestMemoryCard summary={guestMemory} />}
+        <VoiceReservationAssistant draft={draft} setDraft={setDraft} />
         <FormSection title="Плащане">
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="font-bold">Капаро (€)
@@ -2011,6 +2286,103 @@ function ReservationModal({ draft, reservations, setDraft, closeHref, onClose, o
         </div>
       </form>
     </div>
+  );
+}
+
+function VoiceReservationAssistant({ draft, setDraft }: { draft: ReservationDraft; setDraft: (draft: ReservationDraft | null) => void }) {
+  const [supported, setSupported] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [transcript, setTranscript] = useState("");
+  const [error, setError] = useState("");
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const parsed = useMemo(() => parseVoiceReservationText(transcript, draft), [transcript, draft]);
+
+  useEffect(() => {
+    setSupported(Boolean(getSpeechRecognitionConstructor()));
+    return () => {
+      recognitionRef.current?.stop();
+      recognitionRef.current = null;
+    };
+  }, []);
+
+  if (!supported) return null;
+
+  function startListening() {
+    const Recognition = getSpeechRecognitionConstructor();
+    if (!Recognition) {
+      setError("Гласовото въвеждане не се поддържа на това устройство.");
+      return;
+    }
+
+    recognitionRef.current?.stop();
+    const recognition = new Recognition();
+    recognition.lang = "bg-BG";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.onresult = (event) => {
+      const result = event.results[event.resultIndex]?.[0]?.transcript || "";
+      setTranscript(result.trim());
+      setError("");
+    };
+    recognition.onerror = () => {
+      setError("Не успях да разпозная гласа. Опитай пак или попълни ръчно.");
+      setListening(false);
+    };
+    recognition.onend = () => setListening(false);
+    recognitionRef.current = recognition;
+    setListening(true);
+    setError("");
+    recognition.start();
+  }
+
+  function applyParsedVoice() {
+    if (!parsed) return;
+    const next: ReservationDraft = { ...draft };
+    if (parsed.guestName) next.guestName = parsed.guestName;
+    if (parsed.checkin) next.checkin = parsed.checkin;
+    if (parsed.checkout) next.checkout = parsed.checkout;
+    if (parsed.depositAmount !== undefined) next.depositAmount = parsed.depositAmount;
+    if (parsed.totalAmount !== undefined) next.totalAmount = parsed.totalAmount;
+    if (parsed.room) next.rooms = [parsed.room];
+    if (parsed.notes) next.notes = next.notes ? `${next.notes}\n${parsed.notes}` : parsed.notes;
+    pulsePrivacyHaptic();
+    setDraft(next);
+  }
+
+  return (
+    <section className="mt-3 rounded-3xl border border-emerald-100 bg-emerald-50/60 p-3 shadow-sm">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="text-base font-black text-ink">Гласово въвеждане</div>
+          <p className="mt-1 text-sm font-semibold text-clay">Кажи резервацията, прегледай разпознатото и после приложи към формата.</p>
+        </div>
+        <Button type="button" className="tap-target inline-flex items-center justify-center gap-2 rounded-2xl bg-brand-600 px-4 py-2 font-black text-white shadow-sm" onClick={startListening}>
+          <Mic aria-hidden="true" size={18} />
+          {listening ? "Слушам..." : "Говори"}
+        </Button>
+      </div>
+
+      {transcript && (
+        <div className="mt-3 rounded-2xl bg-white/85 p-3 text-sm font-semibold text-clay ring-1 ring-emerald-100">
+          <div className="font-black text-ink">Разпознат текст:</div>
+          <p className="mt-1">{transcript}</p>
+          {parsed?.summary.length ? (
+            <div className="mt-3 grid gap-1 text-xs font-black text-emerald-900 sm:grid-cols-2">
+              {parsed.summary.map((item) => <span key={item} className="rounded-full bg-emerald-100 px-3 py-1">{item}</span>)}
+            </div>
+          ) : (
+            <p className="mt-2 text-xs font-bold text-clay">Не намерих сигурни полета. Може да оставиш текста като бележка ръчно.</p>
+          )}
+          {parsed?.summary.length ? (
+            <Button type="button" className="tap-target mt-3 rounded-2xl border border-emerald-200 bg-white px-4 py-2 font-black text-emerald-800" onClick={applyParsedVoice}>
+              Приложи към формата
+            </Button>
+          ) : null}
+        </div>
+      )}
+      {error && <p className="mt-2 text-sm font-bold text-rose-700">{error}</p>}
+    </section>
   );
 }
 
@@ -2099,10 +2471,123 @@ function GuestMemoryCard({ summary }: { summary: GuestMemorySummary }) {
   );
 }
 
+type ParsedVoiceReservation = {
+  guestName?: string;
+  checkin?: string;
+  checkout?: string;
+  room?: RoomId | "all";
+  depositAmount?: number;
+  totalAmount?: number;
+  notes?: string;
+  summary: string[];
+};
+
+function getSpeechRecognitionConstructor(): SpeechRecognitionConstructor | null {
+  if (typeof window === "undefined") return null;
+  const speechWindow = window as typeof window & {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  };
+  return speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition || null;
+}
+
+function parseVoiceReservationText(text: string, draft: ReservationDraft): ParsedVoiceReservation | null {
+  const raw = (text || "").trim();
+  if (!raw) return null;
+
+  const lower = raw.toLocaleLowerCase("bg-BG");
+  const parsed: ParsedVoiceReservation = { summary: [] };
+  const property = PROPERTIES.find((item) => item.id === draft.propertyId) || PROPERTIES[0];
+
+  const firstChunk = raw.split(/[,.]/)[0]?.trim() || "";
+  if (firstChunk.length >= 3 && !/(от|до|стая|стаи|капаро|общо|сума|евро|€|\d)/i.test(firstChunk)) {
+    parsed.guestName = firstChunk;
+    parsed.summary.push(`Име: ${firstChunk}`);
+  }
+
+  const dateMatch = lower.match(/от\s+(\d{1,2})(?:\s+([а-я]+))?\s+до\s+(\d{1,2})(?:\s+([а-я]+))?/i);
+  if (dateMatch) {
+    const baseYear = Number((draft.checkin || todayISO()).slice(0, 4));
+    const startMonth = voiceMonthNumber(dateMatch[2]) || Number((draft.checkin || todayISO()).slice(5, 7));
+    const endMonth = voiceMonthNumber(dateMatch[4]) || startMonth;
+    const checkin = buildVoiceISODate(baseYear, startMonth, Number(dateMatch[1]));
+    let checkout = buildVoiceISODate(baseYear, endMonth, Number(dateMatch[3]));
+    if (checkin && checkout && checkout <= checkin && !dateMatch[4]) {
+      checkout = buildVoiceISODate(startMonth === 12 ? baseYear + 1 : baseYear, startMonth === 12 ? 1 : startMonth + 1, Number(dateMatch[3]));
+    }
+    if (checkin && checkout) {
+      parsed.checkin = checkin;
+      parsed.checkout = checkout;
+      parsed.summary.push(formatBulgarianDateRange(checkin, checkout));
+    }
+  }
+
+  if (lower.includes("цялата") || lower.includes("цяла")) {
+    parsed.room = "all";
+    parsed.summary.push(`Стая: ${WHOLE_PROPERTY_LABEL}`);
+  } else {
+    const roomMatch = lower.match(/ста(?:я|и)\s*(\d{1,2})/i);
+    const room = roomMatch?.[1];
+    if (room && property.rooms.includes(room)) {
+      parsed.room = room;
+      parsed.summary.push(`Стая: ${room}`);
+    }
+  }
+
+  const deposit = parseVoiceAmount(lower.match(/капаро\s*(\d+(?:[.,]\d+)?)/i)?.[1]);
+  if (deposit !== null) {
+    parsed.depositAmount = deposit;
+    parsed.summary.push(`Капаро: ${eurWhole(deposit)}`);
+  }
+
+  const total = parseVoiceAmount(lower.match(/(?:общо|сума)\s*(\d+(?:[.,]\d+)?)/i)?.[1]);
+  if (total !== null) {
+    parsed.totalAmount = total;
+    parsed.summary.push(`Общо: ${eurWhole(total)}`);
+  }
+
+  if (!parsed.summary.length) return null;
+  return parsed;
+}
+
+function voiceMonthNumber(value?: string): number | null {
+  if (!value) return null;
+  const normalized = value.toLocaleLowerCase("bg-BG");
+  const months: Record<string, number> = {
+    януари: 1,
+    февруари: 2,
+    март: 3,
+    април: 4,
+    май: 5,
+    юни: 6,
+    юли: 7,
+    август: 8,
+    септември: 9,
+    октомври: 10,
+    ноември: 11,
+    декември: 12
+  };
+  return months[normalized] || null;
+}
+
+function buildVoiceISODate(year: number, month: number, day: number): string | null {
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function parseVoiceAmount(value?: string): number | null {
+  if (!value) return null;
+  const amount = Number(value.replace(",", "."));
+  return Number.isFinite(amount) ? amount : null;
+}
+
 function FinancePrivacyPrompt({ onCancel, onReveal }: { onCancel: () => void; onReveal: () => void }) {
   return (
-    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-stone-950/35 p-0 backdrop-blur-sm sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="finance-privacy-title">
-      <div className="w-full rounded-t-3xl border border-white/80 bg-cream p-5 shadow-2xl sm:max-w-md sm:rounded-3xl">
+    <div className="modal-backdrop fixed inset-0 z-[80] flex items-end justify-center bg-stone-950/35 p-0 backdrop-blur-sm sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="finance-privacy-title">
+      <div className="sheet-panel w-full rounded-t-3xl border border-white/80 bg-cream p-5 shadow-2xl sm:max-w-md sm:rounded-3xl">
+        <div className="sheet-handle sm:hidden" />
         <div className="flex items-start gap-3">
           <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-brand-700 shadow-sm ring-1 ring-stone-200">
             <LockKeyhole aria-hidden="true" size={21} />
@@ -2462,6 +2947,173 @@ function formatMonthLabel(month: string): string {
   const [year, monthNumber] = month.split("-");
   const names = ["Яну", "Фев", "Мар", "Апр", "Май", "Юни", "Юли", "Авг", "Сеп", "Окт", "Ное", "Дек"];
   return `${names[Number(monthNumber) - 1] || monthNumber} ${year.slice(2)}`;
+}
+
+function buildAssistantAnswer(query: string, data: AppData, month: string, financeUnlocked: boolean): string {
+  const normalized = normalizeGuestText(query);
+  if (normalized.includes("без капаро") || normalized.includes("капаро")) {
+    return buildNoDepositAssistantAnswer(data, month);
+  }
+  if (normalized.includes("ниска") || normalized.includes("слаби дни") || normalized.includes("свободни")) {
+    return buildLowOccupancyAssistantAnswer(data, month);
+  }
+  if (normalized.includes("уикенд") || normalized.includes("събот") || normalized.includes("петък")) {
+    return buildWeakWeekendAssistantAnswer(data, month);
+  }
+  if (normalized.includes("подобр") || normalized.includes("юни") || normalized.includes("как мога")) {
+    return buildImprovementAssistantAnswer(data, month, financeUnlocked);
+  }
+  return buildMonthlyOverviewAssistantAnswer(data, month, financeUnlocked);
+}
+
+function buildMonthlyOverviewAssistantAnswer(data: AppData, month: string, financeUnlocked: boolean): string {
+  const summary = calculateFinanceSummary(data, month);
+  const revenue = getFinanceRevenue(summary);
+  const occupancy = calculateOccupancyPercent(data, month);
+  const activeCount = activeMonthReservations(data, month).length;
+  const moneyLine = financeUnlocked
+    ? `Общи приходи: ${eurWhole(revenue)}. Разходи: ${eurWhole(summary.expenses)}. Нетно: ${eurWhole(summary.net)}.`
+    : "Финансовите суми са заключени. Отключи Финанси, ако искаш асистентът да ги показва.";
+
+  return [
+    `${formatMonthLabel(month)} накратко:`,
+    `Заетост: ${formatPercent(occupancy)}. Активни резервации с чек-ин през месеца: ${activeCount}.`,
+    moneyLine,
+    occupancy < 30
+      ? "Месецът изглежда слаб като заетост. Има смисъл да се прегледат празните дни и уикендите."
+      : occupancy >= 75
+        ? "Месецът изглежда силен като заетост. Внимавай основно за резервации без капаро."
+        : "Месецът изглежда среден. Най-полезно е да се следят слабите дни и резервациите без капаро."
+  ].join("\n");
+}
+
+function buildNoDepositAssistantAnswer(data: AppData, month: string): string {
+  const today = todayISO();
+  const reservations = activeMonthReservations(data, month)
+    .filter((reservation) => reservation.checkout >= today && reservation.depositAmount <= 0)
+    .sort((a, b) => a.checkin.localeCompare(b.checkin));
+
+  if (!reservations.length) {
+    return `За ${formatMonthLabel(month)} не виждам активни предстоящи резервации без капаро.`;
+  }
+
+  const preview = reservations.slice(0, 6).map((reservation) =>
+    `- ${reservation.guestName || "Без име"} · ${formatBulgarianDateRange(reservation.checkin, reservation.checkout)} · ${propertyName(reservation.propertyId)} · ${roomsLabel(reservation)}`
+  );
+  const extra = reservations.length > preview.length ? `\nИма още ${reservations.length - preview.length} резервации без капаро.` : "";
+  return [`Резервации без капаро за ${formatMonthLabel(month)}: ${reservations.length}`, ...preview].join("\n") + extra;
+}
+
+function buildLowOccupancyAssistantAnswer(data: AppData, month: string): string {
+  const days = monthOccupancyRows(data, month).filter((row) => row.percent < 30);
+  if (!days.length) return `Не виждам дни под 30% заетост за ${formatMonthLabel(month)}.`;
+
+  const preview = days.slice(0, 8).map((row) => `- ${formatDayName(row.iso)} ${formatShortDate(row.iso)} · ${row.occupied}/11`);
+  const extra = days.length > preview.length ? `\nИма още ${days.length - preview.length} слаби дни.` : "";
+  return [`Дни с ниска заетост под 30% за ${formatMonthLabel(month)}:`, ...preview].join("\n") + extra;
+}
+
+function buildWeakWeekendAssistantAnswer(data: AppData, month: string): string {
+  const weekends = monthOccupancyRows(data, month).filter((row) => {
+    const day = parseISODate(row.iso).getDay();
+    return (day === 5 || day === 6) && row.percent < 50;
+  });
+  if (!weekends.length) return `Не виждам слаби петъци/съботи под 50% за ${formatMonthLabel(month)}.`;
+
+  return [
+    `Слаби уикенд дни за ${formatMonthLabel(month)}:`,
+    ...weekends.slice(0, 8).map((row) => `- ${formatDayName(row.iso)} ${formatShortDate(row.iso)} · ${row.occupied}/11`)
+  ].join("\n");
+}
+
+function buildImprovementAssistantAnswer(data: AppData, month: string, financeUnlocked: boolean): string {
+  const lowDays = monthOccupancyRows(data, month).filter((row) => row.percent < 30).length;
+  const noDeposit = activeMonthReservations(data, month).filter((reservation) => reservation.depositAmount <= 0).length;
+  const summary = calculateFinanceSummary(data, month);
+  const ideas = [
+    lowDays > 0
+      ? `Има ${lowDays} дни с ниска заетост. Най-лесният фокус е директна продажба или промоция точно за тях.`
+      : "Няма много слаби дни, така че фокусът може да е върху по-добро потвърждение и капаро.",
+    noDeposit > 0
+      ? `Има ${noDeposit} резервации без капаро. Добре е първо те да се потвърдят.`
+      : "Резервациите с капаро изглеждат добре под контрол.",
+    "За Booking/външни канали отваряй само безопасни свободни дати, когато календарът показва реална свободна наличност."
+  ];
+
+  if (financeUnlocked) {
+    ideas.unshift(`Нетният резултат за ${formatMonthLabel(month)} е ${eurWhole(summary.net)}.`);
+  }
+
+  return [`Идеи за подобрение за ${formatMonthLabel(month)}:`, ...ideas.map((idea) => `- ${idea}`)].join("\n");
+}
+
+function activeMonthReservations(data: AppData, month: string): Reservation[] {
+  return Object.values(data.reservations)
+    .filter((reservation) => reservation.status !== "cancelled" && monthKey(reservation.checkin) === month)
+    .sort((a, b) => a.checkin.localeCompare(b.checkin));
+}
+
+function monthOccupancyRows(data: AppData, month: string): Array<{ iso: string; occupied: number; percent: number }> {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const days = new Date(year, monthNumber, 0).getDate();
+  const reservations = Object.values(data.reservations).filter((reservation) => reservation.status !== "cancelled");
+  return Array.from({ length: days }, (_, index) => {
+    const iso = `${month}-${String(index + 1).padStart(2, "0")}`;
+    const occupancy = getCombinedDayOccupancy(reservations, iso);
+    return { iso, occupied: occupancy.occupied, percent: occupancy.total > 0 ? occupancy.occupied / occupancy.total * 100 : 0 };
+  });
+}
+
+function buildMonthlyFinanceInsights(data: AppData, month: string): string[] {
+  const current = calculateFinanceSummary(data, month);
+  const previousMonth = shiftMonthKey(month, -1);
+  const previous = calculateFinanceSummary(data, previousMonth);
+  const monthLabel = formatMonthLabel(month);
+  const revenue = getFinanceRevenue(current);
+  const previousRevenue = getFinanceRevenue(previous);
+  const occupancy = calculateOccupancyPercent(data, month);
+  const previousOccupancy = calculateOccupancyPercent(data, previousMonth);
+  const expenseRatio = getExpenseRatio(current);
+  const insights = [
+    `${monthLabel} има общи приходи от ${eurWhole(revenue)}.`,
+    `Разходите за ${monthLabel} са ${eurWhole(current.expenses)}.`,
+    `Заетостта за ${monthLabel} е ${formatPercent(occupancy)}.`,
+    `Нетният резултат за ${monthLabel} е ${eurWhole(current.net)}.`
+  ];
+
+  if (expenseRatio !== null) {
+    insights.push(`Разходите са ${formatPercent(expenseRatio)} от приходите за ${monthLabel}.`);
+  }
+
+  const revenueChange = percentChange(revenue, previousRevenue);
+  if (revenueChange !== null) {
+    insights.push(`Приходите са с ${formatPercent(Math.abs(revenueChange))} ${revenueChange >= 0 ? "по-високи" : "по-ниски"} спрямо предходния месец.`);
+  }
+
+  const expenseChange = percentChange(current.expenses, previous.expenses);
+  if (expenseChange !== null) {
+    insights.push(`Разходите са с ${formatPercent(Math.abs(expenseChange))} ${expenseChange >= 0 ? "по-високи" : "по-ниски"} спрямо предходния месец.`);
+  }
+
+  if (previousOccupancy > 0) {
+    const occupancyDiff = Math.round(occupancy - previousOccupancy);
+    if (occupancyDiff !== 0) {
+      insights.push(`Заетостта е с ${Math.abs(occupancyDiff)} пункта ${occupancyDiff > 0 ? "по-висока" : "по-ниска"} спрямо предходния месец.`);
+    }
+  }
+
+  if (occupancy < 30) {
+    insights.push("Заетостта е под 30%, което подсказва слаб месец.");
+  } else if (occupancy >= 75) {
+    insights.push("Заетостта е над 75%, месецът изглежда силен.");
+  }
+
+  return insights;
+}
+
+function percentChange(current: number, previous: number): number | null {
+  if (!Number.isFinite(current) || !Number.isFinite(previous) || previous <= 0) return null;
+  return ((current - previous) / previous) * 100;
 }
 
 type FinanceSummary = {
