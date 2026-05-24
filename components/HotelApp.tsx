@@ -2073,26 +2073,22 @@ function FinanceView({ data, unlocked, setUnlocked }: { data: AppData; unlocked:
 
   return (
     <section className="soft-card relative rounded-3xl p-4">
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h2 className="mb-1 inline-flex items-center gap-2 text-2xl font-black text-ink">
-            <LockKeyhole aria-hidden="true" className={`h-5 w-5 ${unlocked ? "text-emerald-700" : "text-clay"}`} />
-            Финанси
-          </h2>
-          <p className="text-sm font-medium text-clay">Анализи и отчет по месеци.</p>
-        </div>
-        <div className="grid w-full gap-2 sm:w-auto sm:grid-cols-[auto_auto] sm:items-end">
-          <label className="flex w-full flex-col gap-2 rounded-2xl bg-cream p-3 text-sm font-black text-clay ring-1 ring-stone-200 sm:min-w-56">
-            <span>Месец</span>
-            <input className="tap-target w-full rounded-2xl border border-stone-200 bg-white px-3 font-bold text-ink outline-none focus:ring-2 focus:ring-brand-100" type="month" value={selectedMonth} onInput={(event) => setSelectedMonth(event.currentTarget.value)} onChange={(event) => setSelectedMonth(event.target.value)} />
+      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="inline-flex items-center gap-2 text-2xl font-black text-ink">
+          <LockKeyhole aria-hidden="true" className={`h-5 w-5 ${unlocked ? "text-emerald-700" : "text-clay"}`} />
+          Финанси
+        </h2>
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+          <label className="inline-flex min-h-11 flex-1 items-center gap-2 rounded-full border border-stone-200 bg-white/80 px-3 text-sm font-black text-clay shadow-sm sm:flex-none">
+            <span className="sr-only">Месец</span>
+            <input className="min-w-0 flex-1 border-0 bg-transparent text-sm font-black text-ink outline-none sm:w-36" type="month" value={selectedMonth} onInput={(event) => setSelectedMonth(event.currentTarget.value)} onChange={(event) => setSelectedMonth(event.target.value)} />
           </label>
-          <Button type="button" className="tap-target inline-flex items-center justify-center gap-2 rounded-2xl border border-stone-200 bg-white px-4 py-3 font-black text-clay shadow-sm transition hover:bg-cream" onClick={togglePrivacy} aria-pressed={unlocked}>
-            {unlocked ? <EyeOff aria-hidden="true" size={18} /> : <Eye aria-hidden="true" size={18} />}
-            {unlocked ? "Скрий" : "Покажи"}
+          <Button type="button" className="tap-target inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-stone-200 bg-white/70 px-3 text-sm font-black text-clay shadow-sm transition hover:bg-cream sm:px-4" onClick={togglePrivacy} aria-pressed={unlocked}>
+            {unlocked ? <EyeOff aria-hidden="true" size={16} /> : <Eye aria-hidden="true" size={16} />}
+            <span className="hidden min-[380px]:inline sm:inline">{unlocked ? "Скрий" : "Покажи"}</span>
           </Button>
         </div>
-      </div>
-      <div className={`transition duration-300 ${unlocked ? "opacity-100" : "opacity-85 blur-[0.6px]"}`}>
+      </div>      <div className={`transition duration-300 ${unlocked ? "opacity-100" : "opacity-85 blur-[0.6px]"}`}>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
           <Kpi label="Общи Приходи" value={getFinanceRevenue(kpis)} revealed={unlocked} />
           <Kpi label="Разходи" value={kpis.expenses} danger revealed={unlocked} />
