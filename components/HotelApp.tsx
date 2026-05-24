@@ -985,6 +985,7 @@ function HotelAssistant({ data, month, financeUnlocked, onCreateDraft, onClose }
   const [reservationFlow, setReservationFlow] = useState<ReservationFlowState>(initialReservationFlow);
   const [voiceSupported, setVoiceSupported] = useState(false);
   const [listening, setListening] = useState(false);
+  const [interimTranscript, setInterimTranscript] = useState("");
   const [voiceError, setVoiceError] = useState("");
   const [readAloud, setReadAloud] = useState(false);
   const [hasBulgarianVoice, setHasBulgarianVoice] = useState(false);
@@ -1005,6 +1006,11 @@ function HotelAssistant({ data, month, financeUnlocked, onCreateDraft, onClose }
       }
       return;
     }
+    const analyticsAnswer = buildAssistantAnalyticsAnswer(cleanQuery, data, month, financeUnlocked);
+    if (analyticsAnswer) {
+      setAnswer(analyticsAnswer);
+      return;
+    }
     const clarifyingQuestion = getAssistantClarifyingQuestion(cleanQuery);
     if (clarifyingQuestion) {
       setAnswer(clarifyingQuestion);
@@ -1017,7 +1023,11 @@ function HotelAssistant({ data, month, financeUnlocked, onCreateDraft, onClose }
     setQuery("");
     setAnswer("");
     setReservationFlow(initialReservationFlow);
+    setInterimTranscript("");
     setVoiceError("");
+    recognitionRef.current?.stop();
+    recognitionRef.current = null;
+    setListening(false);
     stopAssistantSpeech();
   }
 
@@ -1050,6 +1060,7 @@ function HotelAssistant({ data, month, financeUnlocked, onCreateDraft, onClose }
     return () => {
       recognitionRef.current?.stop();
       recognitionRef.current = null;
+      setListening(false);
       if ("speechSynthesis" in window) {
         window.speechSynthesis.removeEventListener("voiceschanged", syncVoicePreference);
       }
@@ -1074,10 +1085,18 @@ function HotelAssistant({ data, month, financeUnlocked, onCreateDraft, onClose }
     stopAssistantSpeech();
   }, [query]);
 
-  function startAssistantVoice() {
+  function toggleAssistantListening() {
+    if (listening) {
+      recognitionRef.current?.stop();
+      recognitionRef.current = null;
+      setListening(false);
+      setInterimTranscript("");
+      return;
+    }
+
     const Recognition = getSpeechRecognitionConstructor();
     if (!Recognition) {
-      setVoiceError("Гласовото въвеждане не се поддържа на това устройство.");
+      setVoiceError("Гласово въвеждане не се поддържа на това устройство.");
       return;
     }
 
@@ -1085,26 +1104,30 @@ function HotelAssistant({ data, month, financeUnlocked, onCreateDraft, onClose }
     const recognition = new Recognition();
     recognition.lang = "bg-BG";
     recognition.continuous = false;
-    recognition.interimResults = false;
+    recognition.interimResults = true;
     recognition.maxAlternatives = 1;
     recognition.onresult = (event) => {
       const result = event.results[event.resultIndex]?.[0]?.transcript || "";
       const clean = result.trim();
-      setQuery(clean);
+      setInterimTranscript(clean);
+      if (clean) setQuery(clean);
       setVoiceError("");
-      if (clean) askAssistant(clean);
     };
     recognition.onerror = () => {
-      setVoiceError("Не успях да разпозная въпроса. Опитай пак или напиши ръчно.");
+      setVoiceError("Слушането спря. Натисни „Слушай“, за да опиташ пак.");
       setListening(false);
+      setInterimTranscript("");
     };
-    recognition.onend = () => setListening(false);
+    recognition.onend = () => {
+      setListening(false);
+      setInterimTranscript("");
+    };
     recognitionRef.current = recognition;
     setListening(true);
+    setInterimTranscript("");
     setVoiceError("");
     recognition.start();
   }
-
   return (
     <section className="sheet-panel soft-card max-h-[78dvh] overflow-y-auto rounded-3xl p-4 shadow-2xl">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -1116,6 +1139,10 @@ function HotelAssistant({ data, month, financeUnlocked, onCreateDraft, onClose }
             {readAloud ? <Volume2 aria-hidden="true" size={16} /> : <VolumeX aria-hidden="true" size={16} />}
           </Button>
           <Button type="button" className="tap-target inline-flex items-center justify-center rounded-full border border-stone-200 bg-white p-2 text-clay shadow-sm" onClick={() => {
+            recognitionRef.current?.stop();
+            recognitionRef.current = null;
+            setListening(false);
+            setInterimTranscript("");
             stopAssistantSpeech();
             onClose();
           }} aria-label="Затвори Асистент">
@@ -1139,14 +1166,21 @@ function HotelAssistant({ data, month, financeUnlocked, onCreateDraft, onClose }
           }}
         />
         {voiceSupported && (
-          <Button type="button" className={`tap-target inline-flex h-12 w-12 items-center justify-center rounded-2xl border shadow-sm ${listening ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-white text-emerald-800"}`} onClick={startAssistantVoice} aria-label="Гласово въвеждане към асистента">
-            <Mic aria-hidden="true" size={18} />
+          <Button
+            type="button"
+            className={`tap-target inline-flex h-12 min-w-[5.5rem] items-center justify-center gap-1 rounded-2xl border px-3 text-sm font-black shadow-sm ${listening ? "border-rose-200 bg-rose-50 text-rose-700 motion-safe:animate-pulse" : "border-emerald-200 bg-white text-emerald-800"}`}
+            onClick={toggleAssistantListening}
+            aria-label={listening ? "Спри слушането" : "Слушай"}
+            aria-pressed={listening}
+          >
+            <Mic aria-hidden="true" size={17} />
+            <span>{listening ? "Слушам…" : "Слушай"}</span>
           </Button>
-        )}
-        <Button type="button" className="tap-target inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-600 font-black text-white shadow-sm" onClick={() => askAssistant(query || prompts[0])} aria-label="Попитай">
+        )}        <Button type="button" className="tap-target inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-600 font-black text-white shadow-sm" onClick={() => askAssistant(query || prompts[0])} aria-label="Попитай">
           <Send aria-hidden="true" size={18} />
         </Button>
       </div>
+      {interimTranscript && listening && <p className="mt-2 rounded-2xl bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-900">Чувам: {interimTranscript}</p>}
       {voiceError && <p className="mt-2 text-sm font-bold text-rose-700">{voiceError}</p>}
       {(query || answer) && (
         <Button type="button" className="tap-target mt-2 rounded-2xl border border-stone-200 bg-white px-4 py-2 text-sm font-black text-clay shadow-sm" onClick={clearAssistant}>
@@ -3309,6 +3343,166 @@ function nextWeekdayISO(targetDay: number, forceNextWeek: boolean): string {
   let delta = (targetDay - currentDay + 7) % 7;
   if (delta === 0 || forceNextWeek) delta += 7;
   return addDaysISO(todayISO(), delta);
+}
+type AssistantMetricFocus = "all" | "revenue" | "expenses" | "net" | "occupancy";
+type AssistantAnalyticsQuery = {
+  intent: "month_comparison";
+  primaryMonth?: number;
+  baselineMonth?: number;
+  year: number;
+  metricFocus: AssistantMetricFocus;
+  comparisonRequested: boolean;
+};
+
+function buildAssistantAnalyticsAnswer(query: string, data: AppData, activeMonth: string, financeUnlocked: boolean): string | null {
+  const parsed = parseAssistantAnalyticsQuery(query, activeMonth);
+  if (!parsed) return null;
+  if (!parsed.primaryMonth && !parsed.baselineMonth) return "Кои два месеца искаш да сравня?";
+  if (parsed.primaryMonth && !parsed.baselineMonth) return `С кой месец искаш да сравня ${assistantMonthName(parsed.primaryMonth)}?`;
+  if (!parsed.primaryMonth || !parsed.baselineMonth) return "Кои два месеца искаш да сравня?";
+  return buildMonthComparisonAnswer(data, parsed.primaryMonth, parsed.baselineMonth, parsed.year, parsed.metricFocus, financeUnlocked);
+}
+
+function parseAssistantAnalyticsQuery(input: string, activeMonth: string): AssistantAnalyticsQuery | null {
+  const normalized = normalizeGuestText(input).replace(/\bvs\b/g, " спрямо ");
+  const comparisonRequested = detectComparisonIntent(normalized);
+  const months = extractAssistantMonths(normalized);
+  if (!comparisonRequested && months.length < 2) return null;
+  const activeYear = Number(activeMonth.slice(0, 4)) || new Date().getFullYear();
+  const explicitYear = Number(normalized.match(/\b(20\d{2})\b/)?.[1] || 0);
+  return {
+    intent: "month_comparison",
+    primaryMonth: months[0],
+    baselineMonth: months[1],
+    year: explicitYear || activeYear,
+    metricFocus: detectMetricFocus(normalized),
+    comparisonRequested
+  };
+}
+
+function detectComparisonIntent(value: string): boolean {
+  return /(спрямо|сравни|сравнение|срещу|разликата|разлика|между| vs |\bvs\b)/i.test(` ${value} `);
+}
+
+function extractAssistantMonths(value: string): number[] {
+  const found: number[] = [];
+  const pattern = /януари|яну\.?|февруари|фев\.?|март|мар\.?|април|апр\.?|май|юни|юли|август|авг\.?|септември|сеп\.?|октомври|окт\.?|ноември|ное\.?|декември|дек\.?/gi;
+  for (const match of value.matchAll(pattern)) {
+    const month = assistantMonthNumber(match[0]);
+    if (month) found.push(month);
+  }
+  return found;
+}
+
+function assistantMonthNumber(value: string): number | null {
+  const key = normalizeGuestText(value).replace(/\./g, "");
+  const months: Record<string, number> = {
+    януари: 1,
+    яну: 1,
+    февруари: 2,
+    фев: 2,
+    март: 3,
+    мар: 3,
+    април: 4,
+    апр: 4,
+    май: 5,
+    юни: 6,
+    юли: 7,
+    август: 8,
+    авг: 8,
+    септември: 9,
+    сеп: 9,
+    октомври: 10,
+    окт: 10,
+    ноември: 11,
+    ное: 11,
+    декември: 12,
+    дек: 12
+  };
+  return months[key] || null;
+}
+
+function detectMetricFocus(value: string): AssistantMetricFocus {
+  if (value.includes("заетост")) return "occupancy";
+  if (value.includes("разход")) return "expenses";
+  if (value.includes("нетно") || value.includes("резултат")) return "net";
+  if (value.includes("приход")) return "revenue";
+  return "all";
+}
+
+function buildMonthComparisonAnswer(data: AppData, primaryMonthNumber: number, baselineMonthNumber: number, year: number, metricFocus: AssistantMetricFocus, financeUnlocked: boolean): string {
+  const primaryMonth = `${year}-${String(primaryMonthNumber).padStart(2, "0")}`;
+  const baselineMonth = `${year}-${String(baselineMonthNumber).padStart(2, "0")}`;
+  const primary = getAssistantMonthMetrics(data, primaryMonth);
+  const baseline = getAssistantMonthMetrics(data, baselineMonth);
+  const primaryLabel = `${assistantMonthName(primaryMonthNumber)} ${year}`;
+  const baselineLabel = `${assistantMonthName(baselineMonthNumber)} ${year}`;
+  const rows: string[] = [`${primaryLabel} спрямо ${baselineLabel}:`];
+  const metrics: Array<Exclude<AssistantMetricFocus, "all">> = metricFocus === "all" ? ["revenue", "expenses", "net", "occupancy"] : [metricFocus];
+
+  for (const metric of metrics) {
+    rows.push(formatAssistantMetricComparison(metric, primary[metric], baseline[metric], financeUnlocked));
+  }
+
+  rows.push(buildAssistantComparisonConclusion(primaryLabel, primary, baseline, metricFocus));
+  return rows.join("\n");
+}
+
+function getAssistantMonthMetrics(data: AppData, month: string): Record<Exclude<AssistantMetricFocus, "all">, number> {
+  const summary = calculateFinanceSummary(data, month);
+  return {
+    revenue: getFinanceRevenue(summary),
+    expenses: summary.expenses,
+    net: summary.net,
+    occupancy: calculateOccupancyPercent(data, month)
+  };
+}
+
+function formatAssistantMetricComparison(metric: Exclude<AssistantMetricFocus, "all">, primary: number, baseline: number, financeUnlocked: boolean): string {
+  const label = assistantMetricLabel(metric);
+  if (!financeUnlocked && metric !== "occupancy") return `- ${label}: заключено във Финанси`;
+  if (metric === "occupancy") {
+    return `- ${label}: ${formatPercent(primary)} (${formatSignedPoints(primary - baseline)})`;
+  }
+  const delta = baseline === 0 ? "няма база за сравнение" : formatSignedPercent(((primary - baseline) / Math.abs(baseline)) * 100);
+  return `- ${label}: ${eurWhole(primary)} (${delta})`;
+}
+
+function assistantMetricLabel(metric: Exclude<AssistantMetricFocus, "all">): string {
+  const labels = {
+    revenue: "Общи приходи",
+    expenses: "Разходи",
+    net: "Нетно",
+    occupancy: "Заетост"
+  };
+  return labels[metric];
+}
+
+function assistantMonthName(monthNumber: number): string {
+  const names = ["Януари", "Февруари", "Март", "Април", "Май", "Юни", "Юли", "Август", "Септември", "Октомври", "Ноември", "Декември"];
+  return names[monthNumber - 1] || `Месец ${monthNumber}`;
+}
+
+function formatSignedPercent(value: number): string {
+  if (!Number.isFinite(value)) return "няма база за сравнение";
+  const rounded = Math.round(value);
+  return `${rounded > 0 ? "+" : ""}${rounded}%`;
+}
+
+function formatSignedPoints(value: number): string {
+  const rounded = Math.round(value);
+  return `${rounded > 0 ? "+" : ""}${rounded} п.п.`;
+}
+
+function buildAssistantComparisonConclusion(primaryLabel: string, primary: Record<Exclude<AssistantMetricFocus, "all">, number>, baseline: Record<Exclude<AssistantMetricFocus, "all">, number>, metricFocus: AssistantMetricFocus): string {
+  if (metricFocus !== "all") return "";
+  const strongerRevenue = primary.revenue > baseline.revenue;
+  const strongerNet = primary.net > baseline.net;
+  const strongerOccupancy = primary.occupancy > baseline.occupancy;
+  if (strongerRevenue && strongerNet && strongerOccupancy) return `${primaryLabel} изглежда по-силен месец — приходите, нетното и заетостта са нагоре.`;
+  if (!strongerRevenue && !strongerNet && !strongerOccupancy) return `${primaryLabel} изглежда по-слаб месец — приходите, нетното и заетостта са надолу.`;
+  if (strongerRevenue || strongerOccupancy) return `${primaryLabel} има положителен сигнал, но си струва да се следят разходите и нетният резултат.`;
+  return `${primaryLabel} е смесен месец. Най-добре е да се гледат заетостта и нетният резултат заедно.`;
 }
 function buildAssistantAnswer(query: string, data: AppData, month: string, financeUnlocked: boolean): string {
   const normalized = normalizeGuestText(query);
