@@ -557,6 +557,7 @@ export function HotelApp({
       {activeModalDraft && (
         <ReservationModal
           draft={activeModalDraft}
+          reservations={reservations}
           setDraft={setModalDraft}
           closeHref={cleanUrl}
           onClose={() => {
@@ -1912,8 +1913,9 @@ function FinancePanel({ title, kind, types, rows, addRow, updateRow, removeRow }
   );
 }
 
-function ReservationModal({ draft, setDraft, closeHref, onClose, onSave, onDelete }: { draft: ReservationDraft; setDraft: (draft: ReservationDraft | null) => void; closeHref: string; onClose: () => void; onSave: (draft: ReservationDraft) => void; onDelete?: (id: string) => void }) {
+function ReservationModal({ draft, reservations, setDraft, closeHref, onClose, onSave, onDelete }: { draft: ReservationDraft; reservations: Reservation[]; setDraft: (draft: ReservationDraft | null) => void; closeHref: string; onClose: () => void; onSave: (draft: ReservationDraft) => void; onDelete?: (id: string) => void }) {
   const property = PROPERTIES.find((item) => item.id === draft.propertyId) || PROPERTIES[0];
+  const guestMemory = useMemo(() => buildGuestMemorySummary(findGuestMemoryMatches(draft, reservations)), [draft, reservations]);
 
   function toggleRoom(room: RoomId | "all") {
     debugClick("modal room " + room);
@@ -1985,6 +1987,7 @@ function ReservationModal({ draft, setDraft, closeHref, onClose, onSave, onDelet
             </label>
           </div>
         </FormSection>
+        {guestMemory && <GuestMemoryCard summary={guestMemory} />}
         <FormSection title="Плащане">
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="font-bold">Капаро (€)
@@ -2008,6 +2011,91 @@ function ReservationModal({ draft, setDraft, closeHref, onClose, onSave, onDelet
         </div>
       </form>
     </div>
+  );
+}
+
+type GuestMemoryConfidence = "high" | "medium" | "low";
+
+type GuestMemoryMatch = {
+  reservation: Reservation;
+  score: number;
+  confidence: GuestMemoryConfidence;
+  reasons: string[];
+};
+
+type GuestMemorySummary = {
+  matches: GuestMemoryMatch[];
+  confidence: GuestMemoryConfidence;
+  previousStays: number;
+  lastStay: Reservation;
+  totalRevenue: number;
+  notes: string[];
+  roomHistory: string[];
+  depositPattern: string;
+};
+
+function GuestMemoryCard({ summary }: { summary: GuestMemorySummary }) {
+  const [expanded, setExpanded] = useState(false);
+  const confidenceLabel = summary.confidence === "high" ? "Познат гост" : "Възможно съвпадение";
+
+  return (
+    <section className="mt-3 rounded-3xl border border-brand-100 bg-brand-50/70 p-3 shadow-sm">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="text-base font-black text-ink">{confidenceLabel}</div>
+          <div className="mt-1 text-sm font-bold text-clay">
+            Идвал е {summary.previousStays} {summary.previousStays === 1 ? "път" : "пъти"}
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" className="tap-target rounded-2xl border border-brand-100 bg-white px-4 py-2 text-sm font-black text-brand-800 shadow-sm" onClick={() => setExpanded((value) => !value)}>
+            {expanded ? "Скрий" : "Виж история"}
+          </Button>
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-2xl bg-white/80 p-3 text-sm font-semibold text-clay ring-1 ring-brand-100">
+        <div className="font-black text-ink">Последен престой:</div>
+        <div className="mt-1">
+          {formatBulgarianDateRange(summary.lastStay.checkin, summary.lastStay.checkout)} · {propertyName(summary.lastStay.propertyId)} · {roomsLabel(summary.lastStay)}
+        </div>
+        <div className="mt-2 grid gap-1 sm:grid-cols-2">
+          <span>Общо история: <strong className="text-ink">{eurWhole(summary.totalRevenue)}</strong></span>
+          <span>{summary.depositPattern}</span>
+        </div>
+        {summary.roomHistory.length > 0 && (
+          <div className="mt-2 text-xs font-black text-brand-800">
+            {summary.roomHistory.join(" · ")}
+          </div>
+        )}
+      </div>
+
+      {summary.notes.length > 0 && (
+        <div className="mt-3 text-sm font-semibold text-clay">
+          <div className="font-black text-ink">Бележки от предишни резервации:</div>
+          <ul className="mt-1 grid gap-1">
+            {summary.notes.map((note) => <li key={note} className="rounded-2xl bg-white/70 px-3 py-2">- {note}</li>)}
+          </ul>
+        </div>
+      )}
+
+      {expanded && (
+        <div className="mt-3 grid gap-2">
+          {summary.matches.map(({ reservation, reasons }) => (
+            <article key={reservation.id} className="rounded-2xl bg-white p-3 text-sm shadow-sm ring-1 ring-stone-200">
+              <div className="font-black text-ink">{formatBulgarianDateRange(reservation.checkin, reservation.checkout)}</div>
+              <div className="mt-1 font-semibold text-clay">{propertyName(reservation.propertyId)} · {roomsLabel(reservation)}</div>
+              <div className="mt-2 grid gap-1 font-bold text-stone-700 sm:grid-cols-2">
+                <span>Общо: {eurWhole(reservation.totalAmount)}</span>
+                <span>Капаро: {eurWhole(reservation.depositAmount)}</span>
+              </div>
+              {reservation.notes && <p className="mt-2 font-medium text-clay">{reservation.notes}</p>}
+              <div className="mt-2 text-xs font-black text-brand-800">{reasons.join(" · ")}</div>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -2091,6 +2179,128 @@ function FormSection({ title, children }: { title: string; children: ReactNode }
 
 function Legend({ color, label }: { color: string; label: string }) {
   return <span className="inline-flex items-center gap-1"><span className={`h-3 w-3 rounded border ${color}`} />{label}</span>;
+}
+
+function findGuestMemoryMatches(input: ReservationDraft, reservations: Reservation[]): GuestMemoryMatch[] {
+  return reservations
+    .filter((reservation) => reservation.id !== input.id)
+    .map((reservation) => scoreGuestMatch(input, reservation))
+    .filter((match): match is GuestMemoryMatch => Boolean(match))
+    .sort((a, b) => b.score - a.score || b.reservation.checkin.localeCompare(a.reservation.checkin))
+    .slice(0, 8);
+}
+
+function scoreGuestMatch(input: ReservationDraft, reservation: Reservation): GuestMemoryMatch | null {
+  const reasons: string[] = [];
+  let score = 0;
+
+  const inputPhones = getPhoneMatchParts(input.phone);
+  const reservationPhones = getPhoneMatchParts(reservation.phone);
+  const exactPhone = inputPhones.strong.length > 0 && inputPhones.strong.some((phone) => reservationPhones.strong.includes(phone));
+  const lastDigitsPhone = !exactPhone && inputPhones.fallback.length > 0 && inputPhones.fallback.some((phone) => reservationPhones.fallback.includes(phone));
+
+  if (exactPhone) {
+    score += 100;
+    reasons.push("телефон");
+  } else if (lastDigitsPhone) {
+    score += 76;
+    reasons.push("последни цифри");
+  }
+
+  const inputName = normalizeGuestText(input.guestName);
+  const reservationName = normalizeGuestText(reservation.guestName);
+  const nameMatch = inputName.length >= 3 && reservationName.length >= 3 && (inputName === reservationName || inputName.includes(reservationName) || reservationName.includes(inputName));
+
+  if (nameMatch) {
+    score += inputName === reservationName ? 42 : 30;
+    reasons.push("име");
+  }
+
+  const noteMatch = hasSupportingNoteMatch(input.notes, reservation.notes);
+  if (noteMatch && (exactPhone || lastDigitsPhone || nameMatch)) {
+    score += 12;
+    reasons.push("бележки");
+  }
+
+  if (score < 35 || (!exactPhone && !lastDigitsPhone && !nameMatch)) return null;
+
+  return {
+    reservation,
+    score,
+    confidence: score >= 90 ? "high" : score >= 60 ? "medium" : "low",
+    reasons
+  };
+}
+
+function buildGuestMemorySummary(matches: GuestMemoryMatch[]): GuestMemorySummary | null {
+  if (!matches.length) return null;
+
+  const sortedByDate = [...matches].sort((a, b) => b.reservation.checkin.localeCompare(a.reservation.checkin));
+  const lastStay = sortedByDate[0].reservation;
+  const totalRevenue = matches.reduce((sum, match) => sum + (Number(match.reservation.totalAmount) || 0), 0);
+  const depositCount = matches.filter((match) => (Number(match.reservation.depositAmount) || 0) > 0).length;
+  const noteSeen = new Set<string>();
+  const notes = matches
+    .map((match) => match.reservation.notes.trim())
+    .filter(Boolean)
+    .filter((note) => {
+      const normalized = normalizeGuestText(note);
+      if (noteSeen.has(normalized)) return false;
+      noteSeen.add(normalized);
+      return true;
+    })
+    .slice(0, 4);
+  const roomHistory = Array.from(new Set(matches.map((match) => `${propertyName(match.reservation.propertyId)} · ${roomsLabel(match.reservation)}`))).slice(0, 4);
+  const topConfidence = matches.some((match) => match.confidence === "high") ? "high" : matches.some((match) => match.confidence === "medium") ? "medium" : "low";
+
+  return {
+    matches,
+    confidence: topConfidence,
+    previousStays: matches.length,
+    lastStay,
+    totalRevenue,
+    notes,
+    roomHistory,
+    depositPattern: depositCount === matches.length ? "Обикновено има капаро" : depositCount > 0 ? "Понякога оставя капаро" : "Обикновено без капаро"
+  };
+}
+
+function normalizePhoneDigits(phone: string): string {
+  return (phone || "").replace(/[^\d]/g, "");
+}
+
+function getPhoneMatchParts(phone: string): { strong: string[]; fallback: string[] } {
+  const digits = normalizePhoneDigits(phone);
+  if (digits.length < 7) return { strong: [], fallback: [] };
+
+  const strong = new Set<string>([digits]);
+  if (digits.startsWith("0") && digits.length >= 9) strong.add(`359${digits.slice(1)}`);
+  if (digits.startsWith("359") && digits.length >= 11) strong.add(`0${digits.slice(3)}`);
+
+  const fallback = new Set<string>();
+  [9, 8, 7].forEach((length) => {
+    if (digits.length >= length) fallback.add(digits.slice(-length));
+  });
+
+  return { strong: Array.from(strong), fallback: Array.from(fallback) };
+}
+
+function normalizeGuestText(value: string): string {
+  return (value || "").trim().replace(/\s+/g, " ").toLocaleLowerCase("bg-BG");
+}
+
+function hasSupportingNoteMatch(inputNotes: string, reservationNotes: string): boolean {
+  const inputWords = meaningfulGuestWords(inputNotes);
+  if (inputWords.length < 1) return false;
+  const reservationWords = new Set(meaningfulGuestWords(reservationNotes));
+  return inputWords.some((word) => reservationWords.has(word));
+}
+
+function meaningfulGuestWords(value: string): string[] {
+  const common = new Set(["гост", "гости", "стая", "стаи", "нощ", "нощи", "капаро", "плаща", "платено", "има", "няма", "за", "със", "без", "при", "ще"]);
+  return normalizeGuestText(value)
+    .split(/[^0-9a-zа-яё]+/i)
+    .filter((word) => word.length >= 4 && !common.has(word));
 }
 
 function propertyName(propertyId: PropertyId): string {
