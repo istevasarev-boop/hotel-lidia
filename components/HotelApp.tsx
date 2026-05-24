@@ -2,7 +2,7 @@
 
 import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import type { ButtonHTMLAttributes, ReactNode, TouchEvent } from "react";
-import { BarChart3, CalendarDays, ChevronLeft, ChevronRight, Download, Euro, Eye, EyeOff, Home, LockKeyhole, Mic, Plus, Search, Upload } from "lucide-react";
+import { BarChart3, Bot, CalendarDays, ChevronLeft, ChevronRight, Download, Euro, Eye, EyeOff, Home, LockKeyhole, Mic, Plus, Search, Upload, Volume2, VolumeX, X } from "lucide-react";
 import { BOOKING_ROOM_TYPES, BOOKING_TYPE_LABELS, getSafeBookingInventory } from "@/domain/booking/availability";
 import { validateReservationConflict } from "@/domain/reservations/conflicts";
 import { activeOnDate, addDaysISO, eachNight, monthKey, normalizeCheckout, overlapsMonth, todayISO } from "@/domain/reservations/dateRange";
@@ -296,9 +296,9 @@ export function HotelApp({
     listBackups().then(setBackups).catch(() => undefined);
   }
 
-  function openNewReservation(propertyId = activeProperty, isoDate = todayISO(), room: RoomId | "all" = "") {
+  function openNewReservation(propertyId = activeProperty, isoDate = todayISO(), room: RoomId | "all" = "", draftOverride?: ReservationDraft) {
     setUrlModalDismissed(false);
-    setModalDraft(createReservationDraft(propertyId, isoDate, room));
+    setModalDraft(draftOverride || createReservationDraft(propertyId, isoDate, room));
   }
 
   function openEditReservation(reservation: Reservation) {
@@ -565,8 +565,6 @@ export function HotelApp({
           month={month}
           propertyId={activeProperty}
           reservations={reservations}
-          data={data}
-          financeUnlocked={financeUnlocked}
           query={query}
           setQuery={setQuery}
           filter={listFilter}
@@ -608,6 +606,16 @@ export function HotelApp({
         <TabButton active={tab === "transactions"} href={`/?tab=transactions&property=${activeProperty}`} icon={<Euro size={19} />} label="Приходи/Разходи" onClick={() => setTab("transactions")} compact />
         <TabButton active={tab === "finance"} href={`/?tab=finance&property=${activeProperty}`} icon={<BarChart3 size={19} />} label="Финанси" onClick={() => setTab("finance")} compact />
       </nav>
+
+      {!initialDataLoading && (
+        <FloatingAssistant
+          data={data}
+          month={month}
+          propertyId={activeProperty}
+          financeUnlocked={financeUnlocked}
+          onCreateDraft={(draft) => openNewReservation(draft.propertyId, draft.checkin, (draft.rooms[0] as RoomId | "all") || "", draft)}
+        />
+      )}
 
       {activeModalDraft && (
         <ReservationModal
@@ -656,7 +664,7 @@ function createFeedToken(): string {
 
 function AppSectionSkeleton() {
   return (
-    <section className="soft-card rounded-3xl p-4">
+    <section className="sheet-panel soft-card max-h-[78dvh] overflow-y-auto rounded-3xl p-4 shadow-2xl">
       <div className="mb-5 flex items-center justify-between gap-3">
         <div className="grid flex-1 gap-2">
           <div className="soft-skeleton h-6 w-44 rounded-full" />
@@ -751,8 +759,6 @@ function UpcomingView({
   month,
   propertyId,
   reservations,
-  data,
-  financeUnlocked,
   query,
   setQuery,
   filter,
@@ -763,8 +769,6 @@ function UpcomingView({
   month: string;
   propertyId: PropertyId;
   reservations: Reservation[];
-  data: AppData;
-  financeUnlocked: boolean;
   query: string;
   setQuery: (value: string) => void;
   filter: ListFilter;
@@ -847,7 +851,6 @@ function UpcomingView({
           ))}
         </div>
       </section>
-      <HotelAssistant data={data} month={month} financeUnlocked={financeUnlocked} />
       <ReservationsView
         month={month}
         propertyId={propertyId}
@@ -903,12 +906,46 @@ function CalendarWeatherHint({ weather }: { weather?: DailyWeather }) {
   );
 }
 
-function HotelAssistant({ data, month, financeUnlocked }: { data: AppData; month: string; financeUnlocked: boolean }) {
+function FloatingAssistant({ data, month, propertyId, financeUnlocked, onCreateDraft }: { data: AppData; month: string; propertyId: PropertyId; financeUnlocked: boolean; onCreateDraft: (draft: ReservationDraft) => void }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      {!open && (
+        <Button
+          type="button"
+          className="tap-target fixed bottom-[calc(5.8rem+var(--app-safe-bottom))] right-[max(1rem,var(--app-safe-right))] z-40 inline-flex h-14 w-14 items-center justify-center rounded-full bg-brand-600 text-white shadow-2xl ring-4 ring-white/80 transition hover:bg-brand-700 md:bottom-6 md:h-auto md:w-auto md:gap-2 md:px-5 md:py-3"
+          onClick={() => setOpen(true)}
+          aria-label="Отвори Асистент"
+        >
+          <Bot aria-hidden="true" size={22} />
+          <span className="hidden font-black md:inline">Асистент</span>
+        </Button>
+      )}
+      {open && (
+        <div className="fixed inset-x-0 bottom-[calc(4.8rem+var(--app-safe-bottom))] z-40 px-3 md:bottom-6 md:left-auto md:right-6 md:w-[min(28rem,calc(100vw-2rem))] md:px-0">
+          <HotelAssistant
+            data={data}
+            month={month}
+            propertyId={propertyId}
+            financeUnlocked={financeUnlocked}
+            onCreateDraft={onCreateDraft}
+            onClose={() => setOpen(false)}
+          />
+        </div>
+      )}
+    </>
+  );
+}
+
+function HotelAssistant({ data, month, propertyId, financeUnlocked, onCreateDraft, onClose }: { data: AppData; month: string; propertyId: PropertyId; financeUnlocked: boolean; onCreateDraft: (draft: ReservationDraft) => void; onClose: () => void }) {
   const [query, setQuery] = useState("");
-  const [answer, setAnswer] = useState<string>(() => buildAssistantAnswer("обобщение", data, month, financeUnlocked));
+  const [answer, setAnswer] = useState("");
+  const [draftSuggestion, setDraftSuggestion] = useState<ReservationDraft | null>(null);
   const [voiceSupported, setVoiceSupported] = useState(false);
   const [listening, setListening] = useState(false);
   const [voiceError, setVoiceError] = useState("");
+  const [readAloud, setReadAloud] = useState(true);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const prompts = [
     "Как върви месецът?",
@@ -916,22 +953,60 @@ function HotelAssistant({ data, month, financeUnlocked }: { data: AppData; month
     "Кои резервации са без капаро?",
     "Кои уикенди са слаби?"
   ];
+  const demoReservationPrompt = "Направи резервация за Тест Гост, от 18 ноември до 20 ноември, стая 7, капаро 100, общо 300";
 
   function askAssistant(nextQuery: string) {
     const cleanQuery = nextQuery.trim();
     if (!cleanQuery) return;
     debugClick("assistant ask");
     setQuery(cleanQuery);
+    const reservationDraft = buildAssistantReservationDraft(cleanQuery, propertyId);
+    setDraftSuggestion(reservationDraft);
+    if (reservationDraft) {
+      setAnswer(buildAssistantReservationDraftAnswer(reservationDraft));
+      return;
+    }
     setAnswer(buildAssistantAnswer(cleanQuery, data, month, financeUnlocked));
+  }
+
+  function clearAssistant() {
+    setQuery("");
+    setAnswer("");
+    setDraftSuggestion(null);
+    setVoiceError("");
+    stopAssistantSpeech();
+  }
+
+  function handleQueryChange(value: string) {
+    setQuery(value);
+    if (!value.trim()) {
+      setAnswer("");
+      setDraftSuggestion(null);
+      setVoiceError("");
+      stopAssistantSpeech();
+    }
   }
 
   useEffect(() => {
     setVoiceSupported(Boolean(getSpeechRecognitionConstructor()));
+    const saved = window.localStorage.getItem("hotel-lidia-assistant-read-aloud");
+    if (saved !== null) setReadAloud(saved === "true");
     return () => {
       recognitionRef.current?.stop();
       recognitionRef.current = null;
+      stopAssistantSpeech();
     };
   }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem("hotel-lidia-assistant-read-aloud", String(readAloud));
+    if (!readAloud) stopAssistantSpeech();
+  }, [readAloud]);
+
+  useEffect(() => {
+    if (!answer || !readAloud) return;
+    speakAssistantResponse(answer);
+  }, [answer, readAloud]);
 
   function startAssistantVoice() {
     const Recognition = getSpeechRecognitionConstructor();
@@ -971,7 +1046,19 @@ function HotelAssistant({ data, month, financeUnlocked }: { data: AppData; month
           <h3 className="text-xl font-black text-ink">Асистент</h3>
           <p className="mt-1 text-sm font-semibold text-clay">Локален помощник по реалните данни. Не изпраща телефони или гости към външни услуги.</p>
         </div>
-        <span className="w-fit rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-800 ring-1 ring-emerald-100">MVP</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" className={`tap-target inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-black ring-1 ${readAloud ? "bg-emerald-50 text-emerald-800 ring-emerald-100" : "bg-white text-clay ring-stone-200"}`} onClick={() => setReadAloud((value) => !value)} aria-pressed={readAloud}>
+            {readAloud ? <Volume2 aria-hidden="true" size={15} /> : <VolumeX aria-hidden="true" size={15} />}
+            Четене на глас
+          </Button>
+          <span className="w-fit rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-800 ring-1 ring-emerald-100">MVP</span>
+          <Button type="button" className="tap-target inline-flex items-center justify-center rounded-full border border-stone-200 bg-white p-2 text-clay shadow-sm" onClick={() => {
+            stopAssistantSpeech();
+            onClose();
+          }} aria-label="Затвори Асистент">
+            <X aria-hidden="true" size={18} />
+          </Button>
+        </div>
       </div>
 
       <div className="mt-4 flex flex-col gap-2 sm:flex-row">
@@ -979,7 +1066,7 @@ function HotelAssistant({ data, month, financeUnlocked }: { data: AppData; month
           className="tap-target min-w-0 flex-1 rounded-2xl border border-stone-200 bg-white px-4 text-base font-semibold text-ink outline-none focus:ring-2 focus:ring-brand-100"
           placeholder="Попитай: Как върви май?"
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => handleQueryChange(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") askAssistant(query);
           }}
@@ -995,6 +1082,11 @@ function HotelAssistant({ data, month, financeUnlocked }: { data: AppData; month
         </Button>
       </div>
       {voiceError && <p className="mt-2 text-sm font-bold text-rose-700">{voiceError}</p>}
+      {(query || answer) && (
+        <Button type="button" className="tap-target mt-2 rounded-2xl border border-stone-200 bg-white px-4 py-2 text-sm font-black text-clay shadow-sm" onClick={clearAssistant}>
+          Изчисти
+        </Button>
+      )}
 
       <div className="mt-3 flex snap-x gap-2 overflow-x-auto pb-1">
         {prompts.map((prompt) => (
@@ -1007,11 +1099,30 @@ function HotelAssistant({ data, month, financeUnlocked }: { data: AppData; month
             {prompt}
           </Button>
         ))}
+        {process.env.NODE_ENV !== "production" && (
+          <Button
+            type="button"
+            className="tap-target shrink-0 snap-start rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-black text-emerald-800 shadow-sm"
+            onClick={() => askAssistant(demoReservationPrompt)}
+          >
+            Демо резервация
+          </Button>
+        )}
       </div>
 
-      <div className="mt-4 whitespace-pre-line rounded-3xl bg-cream p-4 text-base font-semibold leading-relaxed text-stone-800 ring-1 ring-stone-200">
-        {answer}
-      </div>
+      {answer && (
+        <div className="mt-4 whitespace-pre-line rounded-3xl bg-cream p-4 text-base font-semibold leading-relaxed text-stone-800 ring-1 ring-stone-200">
+          {answer}
+        </div>
+      )}
+      {draftSuggestion && (
+        <div className="mt-3 flex flex-col gap-2 rounded-3xl border border-emerald-100 bg-emerald-50/70 p-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm font-bold text-emerald-950">Провери полетата преди запис. Асистентът няма да запази автоматично.</p>
+          <Button type="button" className="tap-target rounded-2xl bg-brand-600 px-5 py-3 font-black text-white shadow-sm" onClick={() => onCreateDraft(draftSuggestion)}>
+            Отвори форма
+          </Button>
+        </div>
+      )}
     </section>
   );
 }
@@ -2491,6 +2602,32 @@ function getSpeechRecognitionConstructor(): SpeechRecognitionConstructor | null 
   return speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition || null;
 }
 
+function speakAssistantResponse(text: string) {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+  const cleanText = text.trim();
+  if (!cleanText) return;
+
+  stopAssistantSpeech();
+  const utterance = new SpeechSynthesisUtterance(cleanText);
+  utterance.lang = "bg-BG";
+  const voice = getBulgarianVoice();
+  if (voice) utterance.voice = voice;
+  utterance.rate = 0.95;
+  window.speechSynthesis.speak(utterance);
+}
+
+function stopAssistantSpeech() {
+  if (typeof window !== "undefined" && "speechSynthesis" in window) {
+    window.speechSynthesis.cancel();
+  }
+}
+
+function getBulgarianVoice(): SpeechSynthesisVoice | null {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return null;
+  const voices = window.speechSynthesis.getVoices();
+  return voices.find((voice) => voice.lang.toLocaleLowerCase().startsWith("bg")) || voices.find((voice) => voice.lang.toLocaleLowerCase().startsWith("ru")) || null;
+}
+
 function parseVoiceReservationText(text: string, draft: ReservationDraft): ParsedVoiceReservation | null {
   const raw = (text || "").trim();
   if (!raw) return null;
@@ -2500,9 +2637,16 @@ function parseVoiceReservationText(text: string, draft: ReservationDraft): Parse
   const property = PROPERTIES.find((item) => item.id === draft.propertyId) || PROPERTIES[0];
 
   const firstChunk = raw.split(/[,.]/)[0]?.trim() || "";
-  if (firstChunk.length >= 3 && !/(от|до|стая|стаи|капаро|общо|сума|евро|€|\d)/i.test(firstChunk)) {
+  if (firstChunk.length >= 3 && !/(нова|направи|добави|запази|резервац|от|до|стая|стаи|капаро|общо|сума|евро|€|\d)/i.test(firstChunk)) {
     parsed.guestName = firstChunk;
     parsed.summary.push(`Име: ${firstChunk}`);
+  } else {
+    const nameMatch = raw.match(/(?:резервация\s+за|за гост|гост)\s+([А-Яа-яA-Za-z\s]{3,}?)(?=,|\s+от\s+|\s+стая|\s+капаро|\s+общо|$)/i);
+    const name = nameMatch?.[1]?.trim();
+    if (name) {
+      parsed.guestName = name;
+      parsed.summary.push(`Име: ${name}`);
+    }
   }
 
   const dateMatch = lower.match(/от\s+(\d{1,2})(?:\s+([а-я]+))?\s+до\s+(\d{1,2})(?:\s+([а-я]+))?/i);
@@ -2947,6 +3091,64 @@ function formatMonthLabel(month: string): string {
   const [year, monthNumber] = month.split("-");
   const names = ["Яну", "Фев", "Мар", "Апр", "Май", "Юни", "Юли", "Авг", "Сеп", "Окт", "Ное", "Дек"];
   return `${names[Number(monthNumber) - 1] || monthNumber} ${year.slice(2)}`;
+}
+
+function buildAssistantReservationDraft(query: string, defaultPropertyId: PropertyId): ReservationDraft | null {
+  const normalized = normalizeGuestText(query);
+  const hasCreateIntent = /(нова|направи|добави|запази|резервац)/i.test(normalized);
+  const mentionedProperty = inferPropertyFromAssistantText(normalized);
+  let propertyId = mentionedProperty || defaultPropertyId;
+  const roomFromText = normalized.match(/ста(?:я|и)\s*(\d{1,2})/i)?.[1];
+  if (!mentionedProperty && roomFromText) {
+    const inferred = inferPropertyFromRoom(roomFromText);
+    if (inferred) propertyId = inferred;
+  }
+
+  const baseDraft = createReservationDraft(propertyId, todayISO());
+  const parsed = parseVoiceReservationText(query, baseDraft);
+  const phone = parsePhoneFromAssistantText(query);
+  if (!hasCreateIntent && !parsed?.checkin && !parsed?.room && !phone) return null;
+
+  const draft: ReservationDraft = { ...baseDraft };
+  if (parsed?.guestName) draft.guestName = parsed.guestName;
+  if (parsed?.checkin) draft.checkin = parsed.checkin;
+  if (parsed?.checkout) draft.checkout = parsed.checkout;
+  if (parsed?.room) draft.rooms = [parsed.room];
+  if (parsed?.depositAmount !== undefined) draft.depositAmount = parsed.depositAmount;
+  if (parsed?.totalAmount !== undefined) draft.totalAmount = parsed.totalAmount;
+  if (phone) draft.phone = phone;
+  draft.notes = `Създадено от Асистент: ${query}`;
+  return draft;
+}
+
+function buildAssistantReservationDraftAnswer(draft: ReservationDraft): string {
+  const rows = [
+    "Разпознах заявка за нова резервация.",
+    `${propertyName(draft.propertyId)} · ${formatBulgarianDateRange(draft.checkin, draft.checkout)}`,
+    `Стаи: ${draft.rooms.length ? draft.rooms.map((room) => room === "all" ? WHOLE_PROPERTY_LABEL : room).join(", ") : "не са избрани"}`,
+    `Гост: ${draft.guestName || "не е разпознат"}`,
+    draft.phone ? `Телефон: ${draft.phone}` : "Телефон: не е разпознат",
+    `Капаро: ${eurWhole(draft.depositAmount)} · Общо: ${eurWhole(draft.totalAmount)}`,
+    "Натисни “Отвори форма”, прегледай всичко и чак тогава “Запази”."
+  ];
+  return rows.join("\n");
+}
+
+function inferPropertyFromAssistantText(value: string): PropertyId | null {
+  if (value.includes("къща") || value.includes("къщата") || value.includes("house")) return "house";
+  if (value.includes("вила") || value.includes("вилата") || value.includes("villa")) return "villa";
+  return null;
+}
+
+function inferPropertyFromRoom(room: string): PropertyId | null {
+  if (["1", "2", "3", "4"].includes(room)) return "house";
+  if (["5", "6", "7", "8", "9", "10", "11"].includes(room)) return "villa";
+  return null;
+}
+
+function parsePhoneFromAssistantText(value: string): string {
+  const match = value.match(/(?:\+359|0)\s*[\d\s().-]{7,}/);
+  return match ? match[0].trim() : "";
 }
 
 function buildAssistantAnswer(query: string, data: AppData, month: string, financeUnlocked: boolean): string {
