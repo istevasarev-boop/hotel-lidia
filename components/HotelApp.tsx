@@ -1079,11 +1079,15 @@ function HotelAssistant({ data, month, financeUnlocked, onCreateDraft, onClose }
     recognition.interimResults = true;
     recognition.maxAlternatives = 1;
     recognition.onresult = (event) => {
-      const result = event.results[event.resultIndex]?.[0]?.transcript || "";
+      const speechResult = event.results[event.resultIndex] as ArrayLike<{ transcript: string }> & { isFinal?: boolean };
+      const result = speechResult?.[0]?.transcript || "";
       const clean = result.trim();
       setInterimTranscript(clean);
       if (clean) setQuery(clean);
       setVoiceError("");
+      if (clean && speechResult?.isFinal !== false) {
+        askAssistant(clean);
+      }
     };
     recognition.onerror = () => {
       setVoiceError("Слушането спря. Натисни „Слушай“, за да опиташ пак.");
@@ -3018,7 +3022,7 @@ function formatMonthLabel(month: string): string {
 
 function isAssistantReservationIntent(input: string): boolean {
   const normalized = normalizeGuestText(input);
-  return /(^|\s)(искам\s+)?(направи\s+|нова\s+|добави\s+)?резервац/.test(normalized);
+  return normalized.includes("резервац") || normalized.includes("rezerv");
 }
 type AssistantMetricFocus = "all" | "revenue" | "expenses" | "net" | "occupancy";
 type AssistantAnalyticsQuery = {
@@ -3207,9 +3211,6 @@ function getAssistantClarifyingQuestion(query: string): string | null {
   }
   if (normalized.includes("отвори стаи") || normalized.includes("отвори стая")) {
     return "За кои дати и за кой обект?";
-  }
-  if ((normalized.includes("направи") || normalized.includes("добави") || normalized.includes("резервац")) && !/\d{1,2}\s+[а-я]+/.test(normalized)) {
-    return "За кои дати, стая и име на гост?";
   }
   return null;
 }
