@@ -3,6 +3,7 @@ import { getSafeBookingInventory, isBookingType } from "@/domain/booking/availab
 import { addDaysISO, todayISO } from "@/domain/reservations/dateRange";
 import { normalizeImportedData } from "@/domain/reservations/legacyAdapter";
 import type { AppData, BookingTypeId, PropertyId } from "@/domain/reservations/types";
+import { getFirebaseAdminDatabase, hasFirebaseAdminConfig } from "@/lib/firebase/admin";
 
 const DB_PATH = "lydia_hotel_v1";
 const FEED_DAYS = 730;
@@ -35,6 +36,11 @@ export async function GET(
 }
 
 async function loadData(): Promise<AppData> {
+  if (hasFirebaseAdminConfig()) {
+    const snapshot = await getFirebaseAdminDatabase().ref(DB_PATH).get();
+    return normalizeImportedData(snapshot.val());
+  }
+
   const databaseUrl = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL;
   if (!databaseUrl) throw new Error("Firebase database URL is not configured.");
 

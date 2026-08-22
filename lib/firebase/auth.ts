@@ -1,6 +1,6 @@
 "use client";
 
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from "firebase/auth";
+import { onIdTokenChanged, signInWithEmailAndPassword, signOut, type User } from "firebase/auth";
 import { getFirebaseServices } from "./client";
 
 export function listenAuth(callback: (user: User | null) => void): () => void {
@@ -10,7 +10,7 @@ export function listenAuth(callback: (user: User | null) => void): () => void {
     return () => undefined;
   }
 
-  return onAuthStateChanged(services.auth, callback);
+  return onIdTokenChanged(services.auth, callback);
 }
 
 export async function loginWithEmail(email: string, password: string): Promise<void> {
