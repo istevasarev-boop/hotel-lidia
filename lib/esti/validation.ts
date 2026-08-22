@@ -7,12 +7,13 @@ export type EstiValidationError = {
   message: string;
 };
 
+export const ACCOMODATION_PLACE_UIN_MESSAGE = "Въведете валиден ЕСТИ/НТР номер на мястото за настаняване.";
+
 export function validateEstiExport(reservation: Reservation, draft: EstiExportDraft): EstiValidationError[] {
   const errors: EstiValidationError[] = [];
-  const placeUin = draft.accomodationPlaceUin.trim();
 
-  if (!placeUin) {
-    errors.push({ field: "accomodationPlaceUin", message: "Попълни ЕСТИ / НТР номер на мястото за настаняване." });
+  if (!isValidAccomodationPlaceUin(draft.accomodationPlaceUin)) {
+    errors.push({ field: "accomodationPlaceUin", message: ACCOMODATION_PLACE_UIN_MESSAGE });
   }
   if (!isISODate(reservation.checkin) || !isTime(draft.checkInTime)) {
     errors.push({ field: "checkInTime", message: "Попълни валиден час за check-in." });
@@ -32,6 +33,18 @@ export function validateEstiExport(reservation: Reservation, draft: EstiExportDr
   });
 
   return errors;
+}
+
+export function canGenerateEstiCsv(reservation: Reservation, draft: EstiExportDraft): boolean {
+  return validateEstiExport(reservation, draft).length === 0;
+}
+
+export function isValidAccomodationPlaceUin(value: string): boolean {
+  const normalized = value.trim();
+  if (!normalized) return false;
+  if (/\s/.test(normalized)) return false;
+  if (/[\u0400-\u04FF]/.test(normalized)) return false;
+  return /^[A-Za-z0-9._/-]+$/.test(normalized);
 }
 
 function validateTourist(reservation: Reservation, tourist: EstiTouristDraft, index: number, errors: EstiValidationError[]): void {

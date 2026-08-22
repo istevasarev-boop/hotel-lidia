@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Reservation } from "@/domain/reservations/types";
 import { buildEstiCsvRows, escapeCsvValue, formatEstiDate, formatEstiDateTime, serializeEstiCsv } from "@/lib/esti/csv";
 import { ESTI_CSV_HEADERS, type EstiExportDraft } from "@/lib/esti/types";
-import { validateEstiExport } from "@/lib/esti/validation";
+import { canGenerateEstiCsv, isValidAccomodationPlaceUin, validateEstiExport } from "@/lib/esti/validation";
 
 const baseReservation: Reservation = {
   id: "res_test_1",
@@ -48,6 +48,29 @@ function validDraft(partial?: Partial<EstiExportDraft>): EstiExportDraft {
 }
 
 describe("ESTI CSV export", () => {
+  it("validates AccomodationPlaceUin basic required identifier rules", () => {
+    expect(isValidAccomodationPlaceUin("")).toBe(false);
+    expect(isValidAccomodationPlaceUin("   ")).toBe(false);
+    expect(isValidAccomodationPlaceUin("фг")).toBe(false);
+    expect(isValidAccomodationPlaceUin("BG-ESTI-TEST-1")).toBe(true);
+  });
+
+  it("blocks CSV generation when AccomodationPlaceUin is invalid", () => {
+    expect(canGenerateEstiCsv(baseReservation, validDraft({ accomodationPlaceUin: "фг" }))).toBe(false);
+  });
+
+  it("allows CSV generation when AccomodationPlaceUin is valid", () => {
+    expect(canGenerateEstiCsv(baseReservation, validDraft({ accomodationPlaceUin: "BG-ESTI-TEST-1" }))).toBe(true);
+  });
+
+  it("keeps the entered AccomodationPlaceUin exactly in generated CSV rows", () => {
+    const rows = buildEstiCsvRows(baseReservation, validDraft({ accomodationPlaceUin: "BG-ESTI-TEST-1" }));
+    const csv = serializeEstiCsv(rows, false);
+
+    expect(rows[0].AccomodationPlaceUin).toBe("BG-ESTI-TEST-1");
+    expect(csv.split("\r\n")[1].split(";")[0]).toBe("BG-ESTI-TEST-1");
+  });
+
   it("exports single room reservation with one tourist", () => {
     const rows = buildEstiCsvRows(baseReservation, validDraft(), new Date(2026, 4, 18, 9, 7));
     const csv = serializeEstiCsv(rows, false);

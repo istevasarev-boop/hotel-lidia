@@ -20,6 +20,7 @@ export function EstiExportModal({ reservation, onClose }: EstiExportModalProps) 
   const roomOptions = useMemo(() => getAllowedRooms(reservation), [reservation]);
   const [draft, setDraft] = useState<EstiExportDraft>(() => createInitialDraft(reservation, roomOptions));
   const errors = useMemo(() => validateEstiExport(reservation, draft), [draft, reservation]);
+  const accomodationPlaceUinError = errors.find((error) => error.field === "accomodationPlaceUin");
   const previewRows = useMemo(() => buildEstiCsvRows(reservation, draft, previewGeneratedAt || new Date()), [draft, previewGeneratedAt, reservation]);
   const nights = Math.max(1, eachNight(reservation.checkin, reservation.checkout).length);
   const suggestedNightPrice = reservation.totalAmount > 0 ? (reservation.totalAmount / nights).toFixed(2) : "";
@@ -100,12 +101,18 @@ export function EstiExportModal({ reservation, onClose }: EstiExportModalProps) 
                 <label className="block text-sm font-black text-clay">
                   ЕСТИ / НТР номер на мястото за настаняване
                   <input
-                    className="tap-target mt-1 w-full rounded-2xl border border-stone-200 bg-white px-3 py-2 text-base font-bold text-ink outline-none focus:ring-2 focus:ring-brand-100"
+                    className={`tap-target mt-1 w-full rounded-2xl border bg-white px-3 py-2 text-base font-bold text-ink outline-none focus:ring-2 ${accomodationPlaceUinError ? "border-rose-300 focus:ring-rose-100" : "border-stone-200 focus:ring-brand-100"}`}
                     value={draft.accomodationPlaceUin}
                     onChange={(event) => setDraft({ ...draft, accomodationPlaceUin: event.target.value })}
                     autoComplete="off"
                   />
                 </label>
+                <p className="mt-2 text-xs font-semibold text-clay">
+                  Използвайте уникалния номер на мястото за настаняване, регистриран в ЕСТИ/Националния туристически регистър.
+                </p>
+                {accomodationPlaceUinError && (
+                  <p className="mt-2 text-sm font-bold text-rose-700">{accomodationPlaceUinError.message}</p>
+                )}
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
                   <label className="block text-sm font-black text-clay">
                     Check-in time
