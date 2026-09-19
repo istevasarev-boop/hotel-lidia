@@ -12,6 +12,7 @@ export async function GET(request: NextRequest) {
 
   const secret = process.env.EXTERNAL_ENQUIRIES_SECRET;
   if (!secret) {
+    console.error("enquiries proxy: EXTERNAL_ENQUIRIES_SECRET missing in runtime");
     return NextResponse.json({ error: "External enquiries integration is not configured." }, { status: 503 });
   }
 
@@ -22,6 +23,9 @@ export async function GET(request: NextRequest) {
   });
 
   const body = await response.text();
+  if (!response.ok) {
+    console.error(`enquiries proxy GET upstream failed: status=${response.status} body=${body.slice(0, 120)}`);
+  }
   return new NextResponse(body, {
     status: response.status,
     headers: { "content-type": response.headers.get("content-type") || "application/json" }
@@ -34,6 +38,7 @@ export async function PATCH(request: NextRequest) {
 
   const secret = process.env.EXTERNAL_ENQUIRIES_SECRET;
   if (!secret) {
+    console.error("enquiries proxy: EXTERNAL_ENQUIRIES_SECRET missing in runtime");
     return NextResponse.json({ error: "External enquiries integration is not configured." }, { status: 503 });
   }
 
