@@ -103,4 +103,4 @@ function firebaseRestUrl(databaseUrl: string, path: string, authToken?: string):
   return url.toString();
 }
 
-// Preview redeploy after Vercel env update
+// Preview redeploy after EXTERNAL_ENQUIRIES_SECRET update
