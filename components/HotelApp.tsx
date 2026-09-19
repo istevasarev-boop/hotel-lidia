@@ -966,9 +966,10 @@ function EnquiriesPreview({ onCreateReservation }: { onCreateReservation: (enqui
       });
       if (!response.ok) throw new Error(`Enquiries load failed: ${response.status}`);
       const payload = await response.json() as { enquiries?: ApiEnquiry[] };
-      const next = (payload.enquiries || []).map(mapApiEnquiry).filter((item) => item.status !== "dismissed");
+      const next = (payload.enquiries || []).map(mapApiEnquiry);
       setEnquiries(next);
-      setSelectedId((current) => current && next.some((item) => item.id === current) ? current : next[0]?.id || "");
+      const activeNext = next.filter((item) => item.status !== "dismissed");
+      setSelectedId((current) => current && activeNext.some((item) => item.id === current) ? current : activeNext[0]?.id || "");
       setLoadError("");
 
       const nextIds = new Set(next.map((item) => item.id));
@@ -1006,9 +1007,11 @@ function EnquiriesPreview({ onCreateReservation }: { onCreateReservation: (enqui
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const visible = enquiries.filter((item) => filter === "all" || item.status === "new");
-  const selected = enquiries.find((item) => item.id === selectedId) || visible[0] || enquiries[0];
-  const newCount = enquiries.filter((item) => item.status === "new").length;
+  const activeEnquiries = enquiries.filter((item) => item.status !== "dismissed");
+  const archivedEnquiries = enquiries.filter((item) => item.status === "dismissed");
+  const visible = activeEnquiries.filter((item) => filter === "all" || item.status === "new");
+  const selected = activeEnquiries.find((item) => item.id === selectedId) || visible[0] || activeEnquiries[0];
+  const newCount = activeEnquiries.filter((item) => item.status === "new").length;
 
   return (
     <section className="grid gap-4">
@@ -1041,10 +1044,13 @@ function EnquiriesPreview({ onCreateReservation }: { onCreateReservation: (enqui
 
       {loading && <div className="soft-card rounded-3xl p-6 font-bold text-clay">Зареждане на запитванията...</div>}
       {loadError && <div className="rounded-2xl border border-red-100 bg-red-50 p-4 font-bold text-red-700">{loadError}</div>}
-      {!loading && !loadError && enquiries.length === 0 && (
+      {!loading && !loadError && activeEnquiries.length === 0 && (
         <div className="soft-card rounded-3xl p-6 text-center">
           <Inbox size={28} className="mx-auto text-brand-700" />
-          <p className="mt-2 font-black">Все още няма запитвания от сайта.</p>
+          <p className="mt-2 font-black">Няма активни запитвания.</p>
+          {archivedEnquiries.length > 0 && (
+            <p className="mt-1 text-sm font-semibold text-stone-500">Архивирани: {archivedEnquiries.length}</p>
+          )}
         </div>
       )}
 
@@ -1137,10 +1143,50 @@ function EnquiriesPreview({ onCreateReservation }: { onCreateReservation: (enqui
               >
                 {selected.status === "new" ? "Маркирай като в контакт" : "Върни като ново"}
               </button>
+              <button
+                type="button"
+                className="rounded-xl border border-stone-200 bg-white px-4 py-2.5 font-black text-stone-600 hover:border-stone-300 hover:bg-stone-50"
+                onClick={() => updateStatus(selected.id, "dismissed").catch(() => setLoadError("Запитването не можа да се скрие."))}
+              >
+                <EyeOff size={16} className="mr-1.5 inline" /> Скрий
+              </button>
               <span className="inline-flex items-center gap-2 rounded-xl bg-cream px-3 py-2 text-sm font-bold text-stone-500"><Users size={16} /> Реално запитване</span>
             </div>
           </article>
         </div>
+      )}
+
+      {!loading && !loadError && archivedEnquiries.length > 0 && (
+        <details className="soft-card rounded-3xl border border-stone-100 bg-white">
+          <summary className="cursor-pointer select-none px-4 py-4 font-black text-clay sm:px-5">
+            Архивирани запитвания ({archivedEnquiries.length})
+          </summary>
+          <div className="grid gap-3 border-t border-stone-100 p-4 sm:p-5">
+            {archivedEnquiries.map((item) => (
+              <div key={item.id} className="rounded-2xl border border-stone-200 bg-cream/60 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <strong>{item.name}</strong>
+                      <span className="rounded-full bg-stone-200 px-2 py-1 text-[11px] font-black text-stone-600">Архивирано</span>
+                    </div>
+                    <p className="mt-1 text-sm font-bold text-clay">{item.propertyLabel} · {item.interest}</p>
+                    <p className="mt-1 text-sm text-stone-500">
+                      {formatShortDate(item.checkin)} → {formatShortDate(item.checkout)} · {item.adults + item.children} гости · {item.receivedLabel}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm font-black text-clay hover:border-brand-200"
+                    onClick={() => updateStatus(item.id, "new").catch(() => setLoadError("Запитването не можа да се възстанови."))}
+                  >
+                    Възстанови
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </details>
       )}
     </section>
   );
