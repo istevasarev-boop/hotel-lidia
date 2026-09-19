@@ -962,7 +962,7 @@ function EnquiriesPreview({ onCreateReservation }: { onCreateReservation: (enqui
       const idToken = await getCurrentIdToken();
       const response = await fetch("/api/enquiries", {
         cache: "no-store",
-        headers: idToken ? { authorization: `Bearer ${idToken}` } : undefined
+        headers: idToken ? { "x-firebase-id-token": idToken } : undefined
       });
       if (!response.ok) throw new Error(`Enquiries load failed: ${response.status}`);
       const payload = await response.json() as { enquiries?: ApiEnquiry[] };
@@ -991,7 +991,7 @@ function EnquiriesPreview({ onCreateReservation }: { onCreateReservation: (enqui
       method: "PATCH",
       headers: {
         "content-type": "application/json",
-        ...(idToken ? { authorization: `Bearer ${idToken}` } : {})
+        ...(idToken ? { "x-firebase-id-token": idToken } : {})
       },
       body: JSON.stringify({ id, status })
     });
