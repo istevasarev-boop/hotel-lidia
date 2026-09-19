@@ -17,7 +17,7 @@ import { createId } from "@/lib/ids";
 import { fetchCalendarWeather, fetchWeeklyWeather, type DailyWeather } from "@/lib/weather";
 import { deleteHotelReservation, isFirebaseDataError, loadHotelData, saveHotelData } from "@/lib/firebase/db";
 import { hasFirebaseConfig } from "@/lib/firebase/client";
-import { listenAuth, loginWithEmail, logout } from "@/lib/firebase/auth";
+import { getCurrentIdToken, listenAuth, loginWithEmail, logout } from "@/lib/firebase/auth";
 import { createBackup, createDailyBackupIfNeeded, listBackups, restoreBackup, type BackupListItem } from "@/lib/firebase/backups";
 import { EstiExportModal } from "@/components/esti/EstiExportModal";
 import type { User } from "firebase/auth";
@@ -959,7 +959,11 @@ function EnquiriesPreview({ onCreateReservation }: { onCreateReservation: (enqui
 
   async function loadEnquiries(notify = true) {
     try {
-      const response = await fetch("/api/enquiries", { cache: "no-store" });
+      const idToken = await getCurrentIdToken();
+      const response = await fetch("/api/enquiries", {
+        cache: "no-store",
+        headers: idToken ? { authorization: `Bearer ${idToken}` } : undefined
+      });
       if (!response.ok) throw new Error(`Enquiries load failed: ${response.status}`);
       const payload = await response.json() as { enquiries?: ApiEnquiry[] };
       const next = (payload.enquiries || []).map(mapApiEnquiry).filter((item) => item.status !== "dismissed");
@@ -982,9 +986,13 @@ function EnquiriesPreview({ onCreateReservation }: { onCreateReservation: (enqui
   }
 
   async function updateStatus(id: string, status: PreviewEnquiry["status"]) {
+    const idToken = await getCurrentIdToken();
     const response = await fetch("/api/enquiries", {
       method: "PATCH",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        ...(idToken ? { authorization: `Bearer ${idToken}` } : {})
+      },
       body: JSON.stringify({ id, status })
     });
     if (!response.ok) throw new Error(`Enquiry update failed: ${response.status}`);
