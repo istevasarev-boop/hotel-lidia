@@ -2,7 +2,7 @@
 
 import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import type { ButtonHTMLAttributes, FormEvent, ReactNode, TouchEvent } from "react";
-import { BarChart3, Bot, CalendarDays, ChevronLeft, ChevronRight, Download, Euro, Eye, EyeOff, Home, Inbox, LockKeyhole, Mail, Mic, Phone, Plus, Search, Send, Upload, Users, Volume2, VolumeX, X } from "lucide-react";
+import { BarChart3, Bot, CalendarDays, ChevronLeft, ChevronRight, Download, Euro, Eye, EyeOff, Bell, Home, Inbox, LockKeyhole, Mail, Mic, Phone, Plus, Search, Send, Upload, Users, Volume2, VolumeX, X } from "lucide-react";
 import { BOOKING_ROOM_TYPES, BOOKING_TYPE_LABELS, getSafeBookingInventory } from "@/domain/booking/availability";
 import { validateReservationConflict } from "@/domain/reservations/conflicts";
 import { activeOnDate, addDaysISO, eachNight, monthKey, normalizeCheckout, overlapsMonth, todayISO } from "@/domain/reservations/dateRange";
@@ -926,10 +926,33 @@ const PREVIEW_ENQUIRIES: PreviewEnquiry[] = [
   }
 ];
 
+function notifyNewEnquiry(enquiry: PreviewEnquiry) {
+  if (typeof window === "undefined") return;
+
+  const detail = `${enquiry.propertyLabel} · ${enquiry.checkin} → ${enquiry.checkout} · ${enquiry.name}`;
+
+  if ("Notification" in window && Notification.permission === "granted") {
+    new Notification("Ново запитване от vilalidia.bg", {
+      body: detail,
+      icon: "/icon-192.png",
+      tag: `enquiry-${enquiry.id}`
+    });
+  }
+}
+
+async function requestEnquiryNotifications(): Promise<NotificationPermission | "unsupported"> {
+  if (typeof window === "undefined" || !("Notification" in window)) return "unsupported";
+  if (Notification.permission === "granted") return "granted";
+  return Notification.requestPermission();
+}
+
 function EnquiriesPreview({ onCreateReservation }: { onCreateReservation: (enquiry: PreviewEnquiry) => void }) {
   const [selectedId, setSelectedId] = useState(PREVIEW_ENQUIRIES[0].id);
   const [filter, setFilter] = useState<"all" | "new">("all");
   const [localStatuses, setLocalStatuses] = useState<Record<string, PreviewEnquiry["status"]>>({});
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">(
+    typeof window !== "undefined" && "Notification" in window ? Notification.permission : "unsupported"
+  );
   const visible = PREVIEW_ENQUIRIES.filter((item) => filter === "all" || (localStatuses[item.id] || item.status) === "new");
   const selected = PREVIEW_ENQUIRIES.find((item) => item.id === selectedId) || visible[0] || PREVIEW_ENQUIRIES[0];
   const selectedStatus = localStatuses[selected.id] || selected.status;
@@ -947,6 +970,18 @@ function EnquiriesPreview({ onCreateReservation }: { onCreateReservation: (enqui
             <p className="mt-1 text-sm font-semibold text-clay">Preview с примерни данни · без реална интеграция и без запис в Firebase.</p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm font-black text-clay"
+              onClick={async () => {
+                const next = await requestEnquiryNotifications();
+                setNotificationPermission(next);
+                if (next === "granted") notifyNewEnquiry(PREVIEW_ENQUIRIES[0]);
+              }}
+            >
+              <Bell size={15} className="mr-1.5 inline" />
+              {notificationPermission === "granted" ? "Нотификации включени" : notificationPermission === "denied" ? "Нотификации блокирани" : "Включи нотификации"}
+            </button>
             <button className={`rounded-xl px-3 py-2 text-sm font-black ${filter === "all" ? "bg-brand-600 text-white" : "bg-cream text-clay"}`} onClick={() => setFilter("all")}>Всички</button>
             <button className={`rounded-xl px-3 py-2 text-sm font-black ${filter === "new" ? "bg-brand-600 text-white" : "bg-cream text-clay"}`} onClick={() => setFilter("new")}>Нови ({newCount})</button>
           </div>
