@@ -56,11 +56,10 @@ export async function PATCH(request: NextRequest) {
 }
 
 async function verifySession(request: NextRequest): Promise<{ ok: true } | { ok: false; response: NextResponse }> {
-  const authHeader = request.headers.get("authorization");
-  const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  const headerToken = request.headers.get("x-firebase-id-token")?.trim() || "";
   const cookieStore = await cookies();
   const cookieToken = cookieStore.get(SESSION_COOKIE)?.value || "";
-  const token = bearerToken || cookieToken;
+  const token = headerToken || cookieToken;
 
   // The session cookie is only issued by /api/session after Firebase validates the ID token.
   // Its lifetime is capped to one hour, matching the session endpoint.
