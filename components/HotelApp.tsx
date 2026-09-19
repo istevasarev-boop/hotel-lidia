@@ -2,7 +2,7 @@
 
 import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import type { ButtonHTMLAttributes, FormEvent, ReactNode, TouchEvent } from "react";
-import { BarChart3, Bot, CalendarDays, ChevronLeft, ChevronRight, Download, Euro, Eye, EyeOff, Home, LockKeyhole, Mic, Plus, Search, Send, Upload, Volume2, VolumeX, X } from "lucide-react";
+import { BarChart3, Bot, CalendarDays, ChevronLeft, ChevronRight, Download, Euro, Eye, EyeOff, Bell, Home, Inbox, LockKeyhole, Mail, Mic, Phone, Plus, Search, Send, Upload, Users, Volume2, VolumeX, X } from "lucide-react";
 import { BOOKING_ROOM_TYPES, BOOKING_TYPE_LABELS, getSafeBookingInventory } from "@/domain/booking/availability";
 import { validateReservationConflict } from "@/domain/reservations/conflicts";
 import { activeOnDate, addDaysISO, eachNight, monthKey, normalizeCheckout, overlapsMonth, todayISO } from "@/domain/reservations/dateRange";
@@ -17,12 +17,12 @@ import { createId } from "@/lib/ids";
 import { fetchCalendarWeather, fetchWeeklyWeather, type DailyWeather } from "@/lib/weather";
 import { deleteHotelReservation, isFirebaseDataError, loadHotelData, saveHotelData } from "@/lib/firebase/db";
 import { hasFirebaseConfig } from "@/lib/firebase/client";
-import { listenAuth, loginWithEmail, logout } from "@/lib/firebase/auth";
+import { getCurrentIdToken, listenAuth, loginWithEmail, logout } from "@/lib/firebase/auth";
 import { createBackup, createDailyBackupIfNeeded, listBackups, restoreBackup, type BackupListItem } from "@/lib/firebase/backups";
 import { EstiExportModal } from "@/components/esti/EstiExportModal";
 import type { User } from "firebase/auth";
 
-type Tab = "upcoming" | "calendar" | "transactions" | "finance";
+type Tab = "upcoming" | "calendar" | "transactions" | "finance" | "enquiries";
 type ListFilter = "all" | "today" | "next7" | "month" | "noDeposit" | "history";
 type ReservationDraft = Omit<Reservation, "id" | "createdAt" | "updatedAt" | "status"> & { id?: string };
 type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
@@ -691,11 +691,12 @@ export function HotelApp({
         </div>
       )}
 
-      <section className="soft-card hidden grid-cols-4 gap-2 rounded-2xl p-2 md:grid">
+      <section className="soft-card hidden grid-cols-5 gap-2 rounded-2xl p-2 md:grid">
         <TabButton active={tab === "upcoming"} href={`/?tab=upcoming&property=${activeProperty}`} icon={<Home size={18} />} label="Предстоящи" onClick={() => setTab("upcoming")} />
         <TabButton active={tab === "calendar"} href={`/?tab=calendar&property=${activeProperty}`} icon={<CalendarDays size={18} />} label="Календар" onClick={() => setTab("calendar")} />
         <TabButton active={tab === "transactions"} href={`/?tab=transactions&property=${activeProperty}`} icon={<Euro size={18} />} label="Приходи/Разходи" onClick={() => setTab("transactions")} />
         <TabButton active={tab === "finance"} href={`/?tab=finance&property=${activeProperty}`} icon={<Euro size={18} />} label="Финанси" onClick={() => setTab("finance")} />
+        <TabButton active={tab === "enquiries"} href={`/?tab=enquiries&property=${activeProperty}`} icon={<Inbox size={18} />} label="Запитвания" onClick={() => setTab("enquiries")} />
       </section>
 
       {initialDataLoading && <AppSectionSkeleton />}
@@ -793,12 +794,27 @@ export function HotelApp({
       )}
       {tab === "transactions" && !initialDataLoading && <TransactionsView data={data} month={month} setMonth={setMonth} addRow={addFinanceRow} updateRow={updateFinanceRow} removeRow={removeFinanceRow} />}
       {tab === "finance" && !initialDataLoading && <FinanceView data={data} unlocked={financeUnlocked} setUnlocked={setFinanceUnlocked} />}
+      {tab === "enquiries" && !initialDataLoading && <EnquiriesPreview onCreateReservation={(enquiry) => openNewReservation(enquiry.propertyId, enquiry.checkin, "", {
+        ...createReservationDraft(enquiry.propertyId, enquiry.checkin),
+        rooms: enquiry.rooms,
+        checkout: enquiry.checkout,
+        guestName: enquiry.name,
+        phone: enquiry.phone,
+        notes: [
+          "Запитване от vilalidia.bg",
+          `Email: ${enquiry.email}`,
+          `Гости: ${enquiry.adults} възрастни${enquiry.children ? `, ${enquiry.children} деца` : ""}`,
+          `Интерес: ${enquiry.interest}`,
+          enquiry.notes ? `Бележка: ${enquiry.notes}` : ""
+        ].filter(Boolean).join(" · ")
+      })} />}
 
-      <nav className="mobile-bottom-nav fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 gap-1 border-t border-stone-200 bg-cream/95 p-1.5 shadow-2xl backdrop-blur md:hidden">
+      <nav className="mobile-bottom-nav fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 gap-1 border-t border-stone-200 bg-cream/95 p-1.5 shadow-2xl backdrop-blur md:hidden">
         <TabButton active={tab === "upcoming"} href={`/?tab=upcoming&property=${activeProperty}`} icon={<Home size={19} />} label="Предстоящи" onClick={() => setTab("upcoming")} compact />
         <TabButton active={tab === "calendar"} href={`/?tab=calendar&property=${activeProperty}`} icon={<CalendarDays size={19} />} label="Календар" onClick={() => setTab("calendar")} compact />
         <TabButton active={tab === "transactions"} href={`/?tab=transactions&property=${activeProperty}`} icon={<Euro size={19} />} label="Приходи/Разходи" onClick={() => setTab("transactions")} compact />
         <TabButton active={tab === "finance"} href={`/?tab=finance&property=${activeProperty}`} icon={<BarChart3 size={19} />} label="Финанси" onClick={() => setTab("finance")} compact />
+        <TabButton active={tab === "enquiries"} href={`/?tab=enquiries&property=${activeProperty}`} icon={<Inbox size={19} />} label="Запитвания" onClick={() => setTab("enquiries")} compact />
       </nav>
 
       {!initialDataLoading && (
@@ -835,6 +851,353 @@ export function HotelApp({
         <EstiExportModal reservation={estiReservation} onClose={() => setEstiReservation(null)} />
       )}
     </main>
+  );
+}
+
+
+type PreviewEnquiry = {
+  id: string;
+  propertyId: PropertyId;
+  propertyLabel: string;
+  rooms: Array<RoomId | "all">;
+  checkin: string;
+  checkout: string;
+  adults: number;
+  children: number;
+  name: string;
+  phone: string;
+  email: string;
+  interest: string;
+  notes?: string;
+  receivedLabel: string;
+  status: "new" | "contacted" | "dismissed";
+  createdAt: string;
+};
+
+type ApiEnquiry = {
+  id: string;
+  property: "villa" | "guesthouse";
+  checkin: string;
+  checkout: string;
+  adults: number;
+  children: number;
+  rooms: string[];
+  name: string;
+  phone: string;
+  email: string;
+  notes?: string;
+  status: "new" | "contacted" | "dismissed";
+  createdAt: string;
+};
+
+function mapApiEnquiry(item: ApiEnquiry): PreviewEnquiry {
+  const propertyId: PropertyId = item.property === "guesthouse" ? "house" : "villa";
+  const wholeProperty = item.rooms.includes("whole");
+  const interest = item.rooms.length
+    ? item.rooms.map((room) => room === "whole" ? "Целият имот" : room === "jacuzzi" ? "Стая с джакузи" : room === "no_jacuzzi" ? "Стая без джакузи" : room).join(", ")
+    : "Не е посочено";
+
+  return {
+    id: item.id,
+    propertyId,
+    propertyLabel: propertyId === "house" ? "Къща Лидия" : "Вила Лидия",
+    rooms: wholeProperty ? ["all"] : [],
+    checkin: item.checkin,
+    checkout: item.checkout,
+    adults: item.adults,
+    children: item.children,
+    name: item.name,
+    phone: item.phone,
+    email: item.email,
+    interest,
+    notes: item.notes || undefined,
+    receivedLabel: formatEnquiryReceived(item.createdAt),
+    status: item.status,
+    createdAt: item.createdAt
+  };
+}
+
+function formatEnquiryReceived(value: string): string {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("bg-BG", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(date);
+}
+
+function notifyNewEnquiry(enquiry: PreviewEnquiry) {
+  if (typeof window === "undefined") return;
+  const detail = `${enquiry.propertyLabel} · ${enquiry.checkin} → ${enquiry.checkout} · ${enquiry.name}`;
+  if ("Notification" in window && Notification.permission === "granted") {
+    new Notification("Ново запитване от vilalidia.bg", {
+      body: detail,
+      icon: "/icon-192.png",
+      tag: `enquiry-${enquiry.id}`
+    });
+  }
+}
+
+async function requestEnquiryNotifications(): Promise<NotificationPermission | "unsupported"> {
+  if (typeof window === "undefined" || !("Notification" in window)) return "unsupported";
+  if (Notification.permission === "granted") return "granted";
+  return Notification.requestPermission();
+}
+
+function EnquiriesPreview({ onCreateReservation }: { onCreateReservation: (enquiry: PreviewEnquiry) => void }) {
+  const [enquiries, setEnquiries] = useState<PreviewEnquiry[]>([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [filter, setFilter] = useState<"all" | "new">("all");
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const seenIdsRef = useRef<Set<string> | null>(null);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">(
+    typeof window !== "undefined" && "Notification" in window ? Notification.permission : "unsupported"
+  );
+
+  async function loadEnquiries(notify = true) {
+    try {
+      const idToken = await getCurrentIdToken();
+      const response = await fetch("/api/enquiries", {
+        cache: "no-store",
+        headers: idToken ? { "x-firebase-id-token": idToken } : undefined
+      });
+      if (!response.ok) throw new Error(`Enquiries load failed: ${response.status}`);
+      const payload = await response.json() as { enquiries?: ApiEnquiry[] };
+      const next = (payload.enquiries || []).map(mapApiEnquiry);
+      setEnquiries(next);
+      const activeNext = next.filter((item) => item.status !== "dismissed");
+      setSelectedId((current) => current && activeNext.some((item) => item.id === current) ? current : activeNext[0]?.id || "");
+      setLoadError("");
+
+      const nextIds = new Set(next.map((item) => item.id));
+      if (seenIdsRef.current && notify) {
+        const fresh = next.filter((item) => item.status === "new" && !seenIdsRef.current?.has(item.id));
+        fresh.forEach(notifyNewEnquiry);
+      }
+      seenIdsRef.current = nextIds;
+    } catch (error) {
+      console.warn("Enquiries load failed.", error);
+      setLoadError("Запитванията не могат да се заредят.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function updateStatus(id: string, status: PreviewEnquiry["status"]) {
+    const idToken = await getCurrentIdToken();
+    const response = await fetch("/api/enquiries", {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+        ...(idToken ? { "x-firebase-id-token": idToken } : {})
+      },
+      body: JSON.stringify({ id, status })
+    });
+    if (!response.ok) throw new Error(`Enquiry update failed: ${response.status}`);
+    setEnquiries((current) => current.map((item) => item.id === id ? { ...item, status } : item));
+  }
+
+  useEffect(() => {
+    loadEnquiries(false);
+    const interval = window.setInterval(() => loadEnquiries(true), 30000);
+    return () => window.clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const activeEnquiries = enquiries.filter((item) => item.status !== "dismissed");
+  const archivedEnquiries = enquiries.filter((item) => item.status === "dismissed");
+  const visible = activeEnquiries.filter((item) => filter === "all" || item.status === "new");
+  const selected = activeEnquiries.find((item) => item.id === selectedId) || visible[0] || activeEnquiries[0];
+  const newCount = activeEnquiries.filter((item) => item.status === "new").length;
+
+  return (
+    <section className="grid gap-4">
+      <div className="soft-card rounded-3xl p-4 sm:p-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <Inbox size={22} className="text-brand-700" />
+              <h2 className="text-2xl font-black">Запитвания от сайта</h2>
+            </div>
+            <p className="mt-1 text-sm font-semibold text-clay">Реални запитвания от vilalidia.bg · синхронизация на всеки 30 секунди.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm font-black text-clay"
+              onClick={async () => {
+                const next = await requestEnquiryNotifications();
+                setNotificationPermission(next);
+              }}
+            >
+              <Bell size={15} className="mr-1.5 inline" />
+              {notificationPermission === "granted" ? "Нотификации включени" : notificationPermission === "denied" ? "Нотификации блокирани" : "Включи нотификации"}
+            </button>
+            <button className={`rounded-xl px-3 py-2 text-sm font-black ${filter === "all" ? "bg-brand-600 text-white" : "bg-cream text-clay"}`} onClick={() => setFilter("all")}>Всички</button>
+            <button className={`rounded-xl px-3 py-2 text-sm font-black ${filter === "new" ? "bg-brand-600 text-white" : "bg-cream text-clay"}`} onClick={() => setFilter("new")}>Нови ({newCount})</button>
+          </div>
+        </div>
+      </div>
+
+      {loading && <div className="soft-card rounded-3xl p-6 font-bold text-clay">Зареждане на запитванията...</div>}
+      {loadError && <div className="rounded-2xl border border-red-100 bg-red-50 p-4 font-bold text-red-700">{loadError}</div>}
+      {!loading && !loadError && activeEnquiries.length === 0 && (
+        <div className="soft-card rounded-3xl p-6 text-center">
+          <Inbox size={28} className="mx-auto text-brand-700" />
+          <p className="mt-2 font-black">Няма активни запитвания.</p>
+          {archivedEnquiries.length > 0 && (
+            <p className="mt-1 text-sm font-semibold text-stone-500">Архивирани: {archivedEnquiries.length}</p>
+          )}
+        </div>
+      )}
+
+      {!loading && !loadError && selected && (
+        <div className="grid gap-4 lg:grid-cols-[0.95fr_1.35fr]">
+          <div className="grid content-start gap-3">
+            {visible.map((item) => {
+              const active = item.id === selected.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setSelectedId(item.id)}
+                  className={`soft-card rounded-2xl border p-4 text-left transition ${active ? "border-brand-300 ring-2 ring-brand-100" : "border-transparent hover:border-stone-200"}`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <strong className="text-base">{item.name}</strong>
+                        {item.status === "new" ? (
+                          <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-black text-amber-800">Ново</span>
+                        ) : (
+                          <span className="rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-black text-emerald-800">В контакт</span>
+                        )}
+                      </div>
+                      <p className="mt-1 text-sm font-bold text-clay">{item.propertyLabel} · {item.interest}</p>
+                    </div>
+                    <span className="whitespace-nowrap text-xs font-bold text-stone-500">{item.receivedLabel}</span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-clay">
+                    <span>{formatShortDate(item.checkin)} → {formatShortDate(item.checkout)}</span>
+                    <span>{item.adults + item.children} гости</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          <article className="soft-card rounded-3xl p-4 sm:p-6">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-2xl font-black">{selected.name}</h3>
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-black ${selected.status === "new" ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}`}>
+                    {selected.status === "new" ? "Ново запитване" : "В контакт"}
+                  </span>
+                </div>
+                <p className="mt-1 font-bold text-brand-800">{selected.propertyLabel}</p>
+                <p className="mt-1 text-sm text-stone-500">Получено {selected.receivedLabel}</p>
+              </div>
+              <button
+                type="button"
+                className="tap-target rounded-xl bg-brand-600 px-4 py-3 font-black text-white shadow-sm hover:bg-brand-700"
+                onClick={() => onCreateReservation(selected)}
+              >
+                <Plus size={18} className="mr-2 inline" /> Създай резервация
+              </button>
+            </div>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <InfoTile label="Период" value={`${formatShortDate(selected.checkin)} – ${formatShortDate(selected.checkout)}`} />
+              <InfoTile label="Гости" value={`${selected.adults} възр. · ${selected.children} деца`} />
+              <InfoTile label="Интерес" value={selected.interest} />
+              <InfoTile label="Източник" value="vilalidia.bg" />
+            </div>
+
+            <div className="mt-5 grid gap-3 md:grid-cols-2">
+              <a href={`tel:${selected.phone.replace(/\s/g, "")}`} className="rounded-2xl border border-stone-200 bg-white p-4 transition hover:border-brand-200">
+                <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wide text-stone-500"><Phone size={15} /> Телефон</div>
+                <div className="mt-2 text-base font-black text-ink">{selected.phone}</div>
+              </a>
+              <a href={`mailto:${selected.email}`} className="rounded-2xl border border-stone-200 bg-white p-4 transition hover:border-brand-200">
+                <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wide text-stone-500"><Mail size={15} /> Email</div>
+                <div className="mt-2 break-all text-base font-black text-ink">{selected.email}</div>
+              </a>
+            </div>
+
+            {selected.notes && (
+              <div className="mt-4 rounded-2xl bg-cream p-4">
+                <div className="text-xs font-black uppercase tracking-wide text-stone-500">Бележка от госта</div>
+                <p className="mt-2 font-semibold leading-relaxed text-clay">{selected.notes}</p>
+              </div>
+            )}
+
+            <div className="mt-5 flex flex-wrap gap-2 border-t border-stone-100 pt-4">
+              <button
+                type="button"
+                className="rounded-xl border border-stone-200 bg-white px-4 py-2.5 font-black text-clay"
+                onClick={() => updateStatus(selected.id, selected.status === "new" ? "contacted" : "new").catch(() => setLoadError("Статусът не можа да се запише."))}
+              >
+                {selected.status === "new" ? "Маркирай като в контакт" : "Върни като ново"}
+              </button>
+              <button
+                type="button"
+                className="rounded-xl border border-stone-200 bg-white px-4 py-2.5 font-black text-stone-600 hover:border-stone-300 hover:bg-stone-50"
+                onClick={() => updateStatus(selected.id, "dismissed").catch(() => setLoadError("Запитването не можа да се скрие."))}
+              >
+                <EyeOff size={16} className="mr-1.5 inline" /> Скрий
+              </button>
+              <span className="inline-flex items-center gap-2 rounded-xl bg-cream px-3 py-2 text-sm font-bold text-stone-500"><Users size={16} /> Реално запитване</span>
+            </div>
+          </article>
+        </div>
+      )}
+
+      {!loading && !loadError && archivedEnquiries.length > 0 && (
+        <details className="soft-card rounded-3xl border border-stone-100 bg-white">
+          <summary className="cursor-pointer select-none px-4 py-4 font-black text-clay sm:px-5">
+            Архивирани запитвания ({archivedEnquiries.length})
+          </summary>
+          <div className="grid gap-3 border-t border-stone-100 p-4 sm:p-5">
+            {archivedEnquiries.map((item) => (
+              <div key={item.id} className="rounded-2xl border border-stone-200 bg-cream/60 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <strong>{item.name}</strong>
+                      <span className="rounded-full bg-stone-200 px-2 py-1 text-[11px] font-black text-stone-600">Архивирано</span>
+                    </div>
+                    <p className="mt-1 text-sm font-bold text-clay">{item.propertyLabel} · {item.interest}</p>
+                    <p className="mt-1 text-sm text-stone-500">
+                      {formatShortDate(item.checkin)} → {formatShortDate(item.checkout)} · {item.adults + item.children} гости · {item.receivedLabel}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm font-black text-clay hover:border-brand-200"
+                    onClick={() => updateStatus(item.id, "new").catch(() => setLoadError("Запитването не можа да се възстанови."))}
+                  >
+                    Възстанови
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+    </section>
+  );
+}
+
+function InfoTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-stone-200 bg-white p-3">
+      <div className="text-[11px] font-black uppercase tracking-wide text-stone-500">{label}</div>
+      <div className="mt-1 font-black text-ink">{value}</div>
+    </div>
   );
 }
 
@@ -1843,7 +2206,8 @@ function getAssistantQuickActionGroups(currentTab: Tab): Array<{ title: string; 
     upcoming: ["Резервации", "Свободни стаи", "Финанси", "Гости"],
     calendar: ["Свободни стаи", "Резервации", "Гости", "Финанси"],
     transactions: ["Финанси", "Резервации", "Свободни стаи", "Гости"],
-    finance: ["Финанси", "Резервации", "Свободни стаи", "Гости"]
+    finance: ["Финанси", "Резервации", "Свободни стаи", "Гости"],
+    enquiries: ["Резервации", "Гости", "Свободни стаи", "Финанси"]
   };
   return priorityByTab[currentTab].map((title) => ({
     title,

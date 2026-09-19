@@ -24,3 +24,10 @@ export async function logout(): Promise<void> {
   if (!services) return;
   await signOut(services.auth);
 }
+
+export async function getCurrentIdToken(): Promise<string | null> {
+  const services = getFirebaseServices();
+  const user = services?.auth.currentUser;
+  if (!user) return null;
+  return user.getIdToken();
+}
