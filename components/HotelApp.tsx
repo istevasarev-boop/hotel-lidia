@@ -796,10 +796,17 @@ export function HotelApp({
       {tab === "finance" && !initialDataLoading && <FinanceView data={data} unlocked={financeUnlocked} setUnlocked={setFinanceUnlocked} />}
       {tab === "enquiries" && !initialDataLoading && <EnquiriesPreview onCreateReservation={(enquiry) => openNewReservation(enquiry.propertyId, enquiry.checkin, "", {
         ...createReservationDraft(enquiry.propertyId, enquiry.checkin),
+        rooms: enquiry.rooms,
         checkout: enquiry.checkout,
         guestName: enquiry.name,
         phone: enquiry.phone,
-        notes: `Запитване от vilalidia.bg · ${enquiry.email}${enquiry.notes ? ` · ${enquiry.notes}` : ""}`
+        notes: [
+          "Запитване от vilalidia.bg",
+          `Email: ${enquiry.email}`,
+          `Гости: ${enquiry.adults} възрастни${enquiry.children ? `, ${enquiry.children} деца` : ""}`,
+          `Интерес: ${enquiry.interest}`,
+          enquiry.notes ? `Бележка: ${enquiry.notes}` : ""
+        ].filter(Boolean).join(" · ")
       })} />}
 
       <nav className="mobile-bottom-nav fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 gap-1 border-t border-stone-200 bg-cream/95 p-1.5 shadow-2xl backdrop-blur md:hidden">
@@ -852,6 +859,7 @@ type PreviewEnquiry = {
   id: string;
   propertyId: PropertyId;
   propertyLabel: string;
+  rooms: Array<RoomId | "all">;
   checkin: string;
   checkout: string;
   adults: number;
@@ -870,6 +878,7 @@ const PREVIEW_ENQUIRIES: PreviewEnquiry[] = [
     id: "demo-1",
     propertyId: "villa",
     propertyLabel: "Вила Лидия",
+    rooms: ["all"],
     checkin: "2026-10-09",
     checkout: "2026-10-11",
     adults: 6,
@@ -886,6 +895,7 @@ const PREVIEW_ENQUIRIES: PreviewEnquiry[] = [
     id: "demo-2",
     propertyId: "house",
     propertyLabel: "Къща Лидия",
+    rooms: ["1", "2"],
     checkin: "2026-10-16",
     checkout: "2026-10-18",
     adults: 4,
@@ -901,6 +911,7 @@ const PREVIEW_ENQUIRIES: PreviewEnquiry[] = [
     id: "demo-3",
     propertyId: "villa",
     propertyLabel: "Вила Лидия",
+    rooms: ["5"],
     checkin: "2026-11-06",
     checkout: "2026-11-08",
     adults: 2,
