@@ -102,5 +102,3 @@ function firebaseRestUrl(databaseUrl: string, path: string, authToken?: string):
   if (authToken) url.searchParams.set("auth", authToken);
   return url.toString();
 }
-
-// Preview redeploy after EXTERNAL_ENQUIRIES_SECRET update
