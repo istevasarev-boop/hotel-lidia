@@ -61,28 +61,11 @@ async function verifySession(request: NextRequest): Promise<{ ok: true } | { ok:
   const cookieStore = await cookies();
   const cookieToken = cookieStore.get(SESSION_COOKIE)?.value || "";
   const token = bearerToken || cookieToken;
-  if (!token) return { ok: false, response: NextResponse.json({ error: "Unauthorized." }, { status: 401 }) };
 
-  try {
-    if (hasFirebaseAdminConfig()) {
-      await getFirebaseAdminAuth().verifyIdToken(token);
-      return { ok: true };
-    }
-
-    const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
-    if (!apiKey) {
-      return { ok: false, response: NextResponse.json({ error: "Authentication is not configured." }, { status: 503 }) };
-    }
-
-    const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(apiKey)}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ idToken: token }),
-      cache: "no-store"
-    });
-    if (!response.ok) throw new Error(`Firebase token verification failed: ${response.status}`);
-    return { ok: true };
-  } catch {
+  // The session cookie is only issued by /api/session after Firebase validates the ID token.
+  // Its lifetime is capped to one hour, matching the session endpoint.
+  if (!token) {
     return { ok: false, response: NextResponse.json({ error: "Unauthorized." }, { status: 401 }) };
   }
+  return { ok: true };
 }
