@@ -870,67 +870,67 @@ type PreviewEnquiry = {
   interest: string;
   notes?: string;
   receivedLabel: string;
-  status: "new" | "contacted";
+  status: "new" | "contacted" | "dismissed";
+  createdAt: string;
 };
 
-const PREVIEW_ENQUIRIES: PreviewEnquiry[] = [
-  {
-    id: "demo-1",
-    propertyId: "villa",
-    propertyLabel: "Вила Лидия",
-    rooms: ["all"],
-    checkin: "2026-10-09",
-    checkout: "2026-10-11",
-    adults: 6,
-    children: 2,
-    name: "Мария Петрова",
-    phone: "+359 888 123 456",
-    email: "maria@example.com",
-    interest: "Наемане на цялата вила",
-    notes: "Интересуваме се от късно настаняване около 19:30.",
-    receivedLabel: "Днес, 09:42",
-    status: "new"
-  },
-  {
-    id: "demo-2",
-    propertyId: "house",
-    propertyLabel: "Къща Лидия",
-    rooms: ["1", "2"],
-    checkin: "2026-10-16",
-    checkout: "2026-10-18",
-    adults: 4,
-    children: 1,
-    name: "Николай Иванов",
-    phone: "+359 887 555 210",
-    email: "nikolay@example.com",
-    interest: "2 двойни стаи",
-    receivedLabel: "Вчера, 18:15",
-    status: "new"
-  },
-  {
-    id: "demo-3",
-    propertyId: "villa",
-    propertyLabel: "Вила Лидия",
-    rooms: ["5"],
-    checkin: "2026-11-06",
-    checkout: "2026-11-08",
-    adults: 2,
-    children: 0,
-    name: "Елена Георгиева",
-    phone: "+359 899 321 654",
-    email: "elena@example.com",
-    interest: "Стая с джакузи",
-    notes: "Предпочитаме стая с гледка към язовира.",
-    receivedLabel: "17 сеп., 13:06",
-    status: "contacted"
-  }
-];
+type ApiEnquiry = {
+  id: string;
+  property: "villa" | "guesthouse";
+  checkin: string;
+  checkout: string;
+  adults: number;
+  children: number;
+  rooms: string[];
+  name: string;
+  phone: string;
+  email: string;
+  notes?: string;
+  status: "new" | "contacted" | "dismissed";
+  createdAt: string;
+};
+
+function mapApiEnquiry(item: ApiEnquiry): PreviewEnquiry {
+  const propertyId: PropertyId = item.property === "guesthouse" ? "house" : "villa";
+  const wholeProperty = item.rooms.includes("whole");
+  const interest = item.rooms.length
+    ? item.rooms.map((room) => room === "whole" ? "Целият имот" : room === "jacuzzi" ? "Стая с джакузи" : room === "no_jacuzzi" ? "Стая без джакузи" : room).join(", ")
+    : "Не е посочено";
+
+  return {
+    id: item.id,
+    propertyId,
+    propertyLabel: propertyId === "house" ? "Къща Лидия" : "Вила Лидия",
+    rooms: wholeProperty ? ["all"] : [],
+    checkin: item.checkin,
+    checkout: item.checkout,
+    adults: item.adults,
+    children: item.children,
+    name: item.name,
+    phone: item.phone,
+    email: item.email,
+    interest,
+    notes: item.notes || undefined,
+    receivedLabel: formatEnquiryReceived(item.createdAt),
+    status: item.status,
+    createdAt: item.createdAt
+  };
+}
+
+function formatEnquiryReceived(value: string): string {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("bg-BG", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(date);
+}
 
 function notifyNewEnquiry(enquiry: PreviewEnquiry) {
   if (typeof window === "undefined") return;
-
   const detail = `${enquiry.propertyLabel} · ${enquiry.checkin} → ${enquiry.checkout} · ${enquiry.name}`;
-
   if ("Notification" in window && Notification.permission === "granted") {
     new Notification("Ново запитване от vilalidia.bg", {
       body: detail,
@@ -947,16 +947,60 @@ async function requestEnquiryNotifications(): Promise<NotificationPermission | "
 }
 
 function EnquiriesPreview({ onCreateReservation }: { onCreateReservation: (enquiry: PreviewEnquiry) => void }) {
-  const [selectedId, setSelectedId] = useState(PREVIEW_ENQUIRIES[0].id);
+  const [enquiries, setEnquiries] = useState<PreviewEnquiry[]>([]);
+  const [selectedId, setSelectedId] = useState("");
   const [filter, setFilter] = useState<"all" | "new">("all");
-  const [localStatuses, setLocalStatuses] = useState<Record<string, PreviewEnquiry["status"]>>({});
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const seenIdsRef = useRef<Set<string> | null>(null);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">(
     typeof window !== "undefined" && "Notification" in window ? Notification.permission : "unsupported"
   );
-  const visible = PREVIEW_ENQUIRIES.filter((item) => filter === "all" || (localStatuses[item.id] || item.status) === "new");
-  const selected = PREVIEW_ENQUIRIES.find((item) => item.id === selectedId) || visible[0] || PREVIEW_ENQUIRIES[0];
-  const selectedStatus = localStatuses[selected.id] || selected.status;
-  const newCount = PREVIEW_ENQUIRIES.filter((item) => (localStatuses[item.id] || item.status) === "new").length;
+
+  async function loadEnquiries(notify = true) {
+    try {
+      const response = await fetch("/api/enquiries", { cache: "no-store" });
+      if (!response.ok) throw new Error(`Enquiries load failed: ${response.status}`);
+      const payload = await response.json() as { enquiries?: ApiEnquiry[] };
+      const next = (payload.enquiries || []).map(mapApiEnquiry).filter((item) => item.status !== "dismissed");
+      setEnquiries(next);
+      setSelectedId((current) => current && next.some((item) => item.id === current) ? current : next[0]?.id || "");
+      setLoadError("");
+
+      const nextIds = new Set(next.map((item) => item.id));
+      if (seenIdsRef.current && notify) {
+        const fresh = next.filter((item) => item.status === "new" && !seenIdsRef.current?.has(item.id));
+        fresh.forEach(notifyNewEnquiry);
+      }
+      seenIdsRef.current = nextIds;
+    } catch (error) {
+      console.warn("Enquiries load failed.", error);
+      setLoadError("Запитванията не могат да се заредят.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function updateStatus(id: string, status: PreviewEnquiry["status"]) {
+    const response = await fetch("/api/enquiries", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id, status })
+    });
+    if (!response.ok) throw new Error(`Enquiry update failed: ${response.status}`);
+    setEnquiries((current) => current.map((item) => item.id === id ? { ...item, status } : item));
+  }
+
+  useEffect(() => {
+    loadEnquiries(false);
+    const interval = window.setInterval(() => loadEnquiries(true), 30000);
+    return () => window.clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const visible = enquiries.filter((item) => filter === "all" || item.status === "new");
+  const selected = enquiries.find((item) => item.id === selectedId) || visible[0] || enquiries[0];
+  const newCount = enquiries.filter((item) => item.status === "new").length;
 
   return (
     <section className="grid gap-4">
@@ -967,7 +1011,7 @@ function EnquiriesPreview({ onCreateReservation }: { onCreateReservation: (enqui
               <Inbox size={22} className="text-brand-700" />
               <h2 className="text-2xl font-black">Запитвания от сайта</h2>
             </div>
-            <p className="mt-1 text-sm font-semibold text-clay">Preview с примерни данни · без реална интеграция и без запис в Firebase.</p>
+            <p className="mt-1 text-sm font-semibold text-clay">Реални запитвания от vilalidia.bg · синхронизация на всеки 30 секунди.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
@@ -976,7 +1020,6 @@ function EnquiriesPreview({ onCreateReservation }: { onCreateReservation: (enqui
               onClick={async () => {
                 const next = await requestEnquiryNotifications();
                 setNotificationPermission(next);
-                if (next === "granted") notifyNewEnquiry(PREVIEW_ENQUIRIES[0]);
               }}
             >
               <Bell size={15} className="mr-1.5 inline" />
@@ -988,99 +1031,109 @@ function EnquiriesPreview({ onCreateReservation }: { onCreateReservation: (enqui
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[0.95fr_1.35fr]">
-        <div className="grid content-start gap-3">
-          {visible.map((item) => {
-            const status = localStatuses[item.id] || item.status;
-            const active = item.id === selected.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setSelectedId(item.id)}
-                className={`soft-card rounded-2xl border p-4 text-left transition ${active ? "border-brand-300 ring-2 ring-brand-100" : "border-transparent hover:border-stone-200"}`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <strong className="text-base">{item.name}</strong>
-                      {status === "new" ? (
-                        <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-black text-amber-800">Ново</span>
-                      ) : (
-                        <span className="rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-black text-emerald-800">Свързани</span>
-                      )}
-                    </div>
-                    <p className="mt-1 text-sm font-bold text-clay">{item.propertyLabel} · {item.interest}</p>
-                  </div>
-                  <span className="whitespace-nowrap text-xs font-bold text-stone-500">{item.receivedLabel}</span>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-clay">
-                  <span>{formatShortDate(item.checkin)} → {formatShortDate(item.checkout)}</span>
-                  <span>{item.adults + item.children} гости</span>
-                </div>
-              </button>
-            );
-          })}
+      {loading && <div className="soft-card rounded-3xl p-6 font-bold text-clay">Зареждане на запитванията...</div>}
+      {loadError && <div className="rounded-2xl border border-red-100 bg-red-50 p-4 font-bold text-red-700">{loadError}</div>}
+      {!loading && !loadError && enquiries.length === 0 && (
+        <div className="soft-card rounded-3xl p-6 text-center">
+          <Inbox size={28} className="mx-auto text-brand-700" />
+          <p className="mt-2 font-black">Все още няма запитвания от сайта.</p>
         </div>
+      )}
 
-        <article className="soft-card rounded-3xl p-4 sm:p-6">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <h3 className="text-2xl font-black">{selected.name}</h3>
-                <span className={`rounded-full px-2.5 py-1 text-xs font-black ${selectedStatus === "new" ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}`}>
-                  {selectedStatus === "new" ? "Ново запитване" : "Свързани"}
-                </span>
+      {!loading && !loadError && selected && (
+        <div className="grid gap-4 lg:grid-cols-[0.95fr_1.35fr]">
+          <div className="grid content-start gap-3">
+            {visible.map((item) => {
+              const active = item.id === selected.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setSelectedId(item.id)}
+                  className={`soft-card rounded-2xl border p-4 text-left transition ${active ? "border-brand-300 ring-2 ring-brand-100" : "border-transparent hover:border-stone-200"}`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <strong className="text-base">{item.name}</strong>
+                        {item.status === "new" ? (
+                          <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-black text-amber-800">Ново</span>
+                        ) : (
+                          <span className="rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-black text-emerald-800">В контакт</span>
+                        )}
+                      </div>
+                      <p className="mt-1 text-sm font-bold text-clay">{item.propertyLabel} · {item.interest}</p>
+                    </div>
+                    <span className="whitespace-nowrap text-xs font-bold text-stone-500">{item.receivedLabel}</span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-clay">
+                    <span>{formatShortDate(item.checkin)} → {formatShortDate(item.checkout)}</span>
+                    <span>{item.adults + item.children} гости</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          <article className="soft-card rounded-3xl p-4 sm:p-6">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-2xl font-black">{selected.name}</h3>
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-black ${selected.status === "new" ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}`}>
+                    {selected.status === "new" ? "Ново запитване" : "В контакт"}
+                  </span>
+                </div>
+                <p className="mt-1 font-bold text-brand-800">{selected.propertyLabel}</p>
+                <p className="mt-1 text-sm text-stone-500">Получено {selected.receivedLabel}</p>
               </div>
-              <p className="mt-1 font-bold text-brand-800">{selected.propertyLabel}</p>
-              <p className="mt-1 text-sm text-stone-500">Получено {selected.receivedLabel}</p>
+              <button
+                type="button"
+                className="tap-target rounded-xl bg-brand-600 px-4 py-3 font-black text-white shadow-sm hover:bg-brand-700"
+                onClick={() => onCreateReservation(selected)}
+              >
+                <Plus size={18} className="mr-2 inline" /> Създай резервация
+              </button>
             </div>
-            <button
-              type="button"
-              className="tap-target rounded-xl bg-brand-600 px-4 py-3 font-black text-white shadow-sm hover:bg-brand-700"
-              onClick={() => onCreateReservation(selected)}
-            >
-              <Plus size={18} className="mr-2 inline" /> Създай резервация
-            </button>
-          </div>
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <InfoTile label="Период" value={`${formatShortDate(selected.checkin)} – ${formatShortDate(selected.checkout)}`} />
-            <InfoTile label="Гости" value={`${selected.adults} възр. · ${selected.children} деца`} />
-            <InfoTile label="Интерес" value={selected.interest} />
-            <InfoTile label="Източник" value="vilalidia.bg" />
-          </div>
-
-          <div className="mt-5 grid gap-3 md:grid-cols-2">
-            <a href={`tel:${selected.phone.replace(/\s/g, "")}`} className="rounded-2xl border border-stone-200 bg-white p-4 transition hover:border-brand-200">
-              <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wide text-stone-500"><Phone size={15} /> Телефон</div>
-              <div className="mt-2 text-base font-black text-ink">{selected.phone}</div>
-            </a>
-            <a href={`mailto:${selected.email}`} className="rounded-2xl border border-stone-200 bg-white p-4 transition hover:border-brand-200">
-              <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wide text-stone-500"><Mail size={15} /> Email</div>
-              <div className="mt-2 break-all text-base font-black text-ink">{selected.email}</div>
-            </a>
-          </div>
-
-          {selected.notes && (
-            <div className="mt-4 rounded-2xl bg-cream p-4">
-              <div className="text-xs font-black uppercase tracking-wide text-stone-500">Бележка от госта</div>
-              <p className="mt-2 font-semibold leading-relaxed text-clay">{selected.notes}</p>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <InfoTile label="Период" value={`${formatShortDate(selected.checkin)} – ${formatShortDate(selected.checkout)}`} />
+              <InfoTile label="Гости" value={`${selected.adults} възр. · ${selected.children} деца`} />
+              <InfoTile label="Интерес" value={selected.interest} />
+              <InfoTile label="Източник" value="vilalidia.bg" />
             </div>
-          )}
 
-          <div className="mt-5 flex flex-wrap gap-2 border-t border-stone-100 pt-4">
-            <button
-              type="button"
-              className="rounded-xl border border-stone-200 bg-white px-4 py-2.5 font-black text-clay"
-              onClick={() => setLocalStatuses((current) => ({ ...current, [selected.id]: selectedStatus === "new" ? "contacted" : "new" }))}
-            >
-              {selectedStatus === "new" ? "Маркирай като свързани" : "Върни като ново"}
-            </button>
-            <span className="inline-flex items-center gap-2 rounded-xl bg-cream px-3 py-2 text-sm font-bold text-stone-500"><Users size={16} /> Данните са само демо</span>
-          </div>
-        </article>
-      </div>
+            <div className="mt-5 grid gap-3 md:grid-cols-2">
+              <a href={`tel:${selected.phone.replace(/\s/g, "")}`} className="rounded-2xl border border-stone-200 bg-white p-4 transition hover:border-brand-200">
+                <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wide text-stone-500"><Phone size={15} /> Телефон</div>
+                <div className="mt-2 text-base font-black text-ink">{selected.phone}</div>
+              </a>
+              <a href={`mailto:${selected.email}`} className="rounded-2xl border border-stone-200 bg-white p-4 transition hover:border-brand-200">
+                <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wide text-stone-500"><Mail size={15} /> Email</div>
+                <div className="mt-2 break-all text-base font-black text-ink">{selected.email}</div>
+              </a>
+            </div>
+
+            {selected.notes && (
+              <div className="mt-4 rounded-2xl bg-cream p-4">
+                <div className="text-xs font-black uppercase tracking-wide text-stone-500">Бележка от госта</div>
+                <p className="mt-2 font-semibold leading-relaxed text-clay">{selected.notes}</p>
+              </div>
+            )}
+
+            <div className="mt-5 flex flex-wrap gap-2 border-t border-stone-100 pt-4">
+              <button
+                type="button"
+                className="rounded-xl border border-stone-200 bg-white px-4 py-2.5 font-black text-clay"
+                onClick={() => updateStatus(selected.id, selected.status === "new" ? "contacted" : "new").catch(() => setLoadError("Статусът не можа да се запише."))}
+              >
+                {selected.status === "new" ? "Маркирай като в контакт" : "Върни като ново"}
+              </button>
+              <span className="inline-flex items-center gap-2 rounded-xl bg-cream px-3 py-2 text-sm font-bold text-stone-500"><Users size={16} /> Реално запитване</span>
+            </div>
+          </article>
+        </div>
+      )}
     </section>
   );
 }
