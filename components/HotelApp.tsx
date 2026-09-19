@@ -2053,7 +2053,8 @@ function getAssistantQuickActionGroups(currentTab: Tab): Array<{ title: string; 
     upcoming: ["Резервации", "Свободни стаи", "Финанси", "Гости"],
     calendar: ["Свободни стаи", "Резервации", "Гости", "Финанси"],
     transactions: ["Финанси", "Резервации", "Свободни стаи", "Гости"],
-    finance: ["Финанси", "Резервации", "Свободни стаи", "Гости"]
+    finance: ["Финанси", "Резервации", "Свободни стаи", "Гости"],
+    enquiries: ["Резервации", "Гости", "Свободни стаи", "Финанси"]
   };
   return priorityByTab[currentTab].map((title) => ({
     title,
