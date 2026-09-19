@@ -60,14 +60,24 @@ async function verifySession(): Promise<{ ok: true } | { ok: false; response: Ne
   const token = cookieStore.get(SESSION_COOKIE)?.value;
   if (!token) return { ok: false, response: NextResponse.json({ error: "Unauthorized." }, { status: 401 }) };
 
-  if (!hasFirebaseAdminConfig()) {
-    // Preview can still rely on the existing Firebase-authenticated client session cookie.
-    // The website enquiries endpoint itself remains protected by the server-side shared secret.
-    return { ok: true };
-  }
-
   try {
-    await getFirebaseAdminAuth().verifyIdToken(token);
+    if (hasFirebaseAdminConfig()) {
+      await getFirebaseAdminAuth().verifyIdToken(token);
+      return { ok: true };
+    }
+
+    const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+    if (!apiKey) {
+      return { ok: false, response: NextResponse.json({ error: "Authentication is not configured." }, { status: 503 }) };
+    }
+
+    const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(apiKey)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ idToken: token }),
+      cache: "no-store"
+    });
+    if (!response.ok) throw new Error(`Firebase token verification failed: ${response.status}`);
     return { ok: true };
   } catch {
     return { ok: false, response: NextResponse.json({ error: "Unauthorized." }, { status: 401 }) };
