@@ -6,8 +6,8 @@ const SESSION_COOKIE = "hotel_lidia_session";
 const WEBSITE_ENQUIRIES_URL =
   process.env.HOTEL_WEBSITE_ENQUIRIES_URL || "https://www.vilalidia.bg/api/public/enquiries";
 
-export async function GET() {
-  const auth = await verifySession();
+export async function GET(request: NextRequest) {
+  const auth = await verifySession(request);
   if (!auth.ok) return auth.response;
 
   const secret = process.env.EXTERNAL_ENQUIRIES_SECRET;
@@ -29,7 +29,7 @@ export async function GET() {
 }
 
 export async function PATCH(request: NextRequest) {
-  const auth = await verifySession();
+  const auth = await verifySession(request);
   if (!auth.ok) return auth.response;
 
   const secret = process.env.EXTERNAL_ENQUIRIES_SECRET;
@@ -55,9 +55,12 @@ export async function PATCH(request: NextRequest) {
   });
 }
 
-async function verifySession(): Promise<{ ok: true } | { ok: false; response: NextResponse }> {
+async function verifySession(request: NextRequest): Promise<{ ok: true } | { ok: false; response: NextResponse }> {
+  const authHeader = request.headers.get("authorization");
+  const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
   const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE)?.value;
+  const cookieToken = cookieStore.get(SESSION_COOKIE)?.value || "";
+  const token = bearerToken || cookieToken;
   if (!token) return { ok: false, response: NextResponse.json({ error: "Unauthorized." }, { status: 401 }) };
 
   try {
