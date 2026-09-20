@@ -982,9 +982,7 @@ function EnquiriesPreview({ onCreateReservation, onNewCountChange }: { onCreateR
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const seenIdsRef = useRef<Set<string> | null>(null);
-  const [notificationPermission, setNotificationPermission] = useState<PushSetupState>(
-    typeof window !== "undefined" && "Notification" in window ? Notification.permission : "unsupported"
-  );
+  const [notificationPermission, setNotificationPermission] = useState<PushSetupState>("unsupported");
 
   async function loadEnquiries(notify = true) {
     try {
@@ -1033,6 +1031,22 @@ function EnquiriesPreview({ onCreateReservation, onNewCountChange }: { onCreateR
       return next;
     });
   }
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      setNotificationPermission("unsupported");
+      return;
+    }
+
+    if (Notification.permission !== "granted") {
+      setNotificationPermission(Notification.permission);
+      return;
+    }
+
+    enablePersistentPushNotifications()
+      .then(setNotificationPermission)
+      .catch(() => setNotificationPermission("setup_error"));
+  }, []);
 
   useEffect(() => {
     loadEnquiries(false);
