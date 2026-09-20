@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 const WEBSITE_PUSH_SUBSCRIPTIONS_URL =
   process.env.HOTEL_WEBSITE_PUSH_SUBSCRIPTIONS_URL ||
-  "https://id-preview--fe65f824-857b-4d2f-b15d-72d08bc0b687.lovable.app/api/public/push-subscriptions";
+  "https://www.vilalidia.bg/api/public/push-subscriptions";
 
 export async function POST(request: NextRequest) {
   const token = request.headers.get("x-firebase-id-token")?.trim() || "";
