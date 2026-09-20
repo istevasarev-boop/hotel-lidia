@@ -6,7 +6,10 @@ const WEBSITE_PUSH_SUBSCRIPTIONS_URL =
 
 export async function POST(request: NextRequest) {
   const token = request.headers.get("x-firebase-id-token")?.trim() || "";
-  if (!token) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  if (!token) {
+    console.error("push subscription: missing Firebase token");
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
 
   const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
   if (!apiKey) return NextResponse.json({ error: "Authentication is not configured." }, { status: 503 });
@@ -22,6 +25,7 @@ export async function POST(request: NextRequest) {
   ).catch(() => null);
 
   if (!verification?.ok) {
+    console.error("push subscription: Firebase token verification failed");
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
@@ -47,6 +51,9 @@ export async function POST(request: NextRequest) {
   });
 
   const body = await upstream.text();
+  if (!upstream.ok) {
+    console.error(`push subscription upstream failed: status=${upstream.status} body=${body.slice(0, 80)}`);
+  }
   return new NextResponse(body, {
     status: upstream.status,
     headers: { "content-type": upstream.headers.get("content-type") || "application/json" }
