@@ -2,7 +2,7 @@
 
 import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import type { ButtonHTMLAttributes, FormEvent, ReactNode, TouchEvent } from "react";
-import { BarChart3, Bot, CalendarDays, ChevronLeft, ChevronRight, Download, Euro, Eye, EyeOff, Bell, Home, Inbox, LockKeyhole, Mail, Mic, Phone, Plus, Search, Send, Upload, Users, Volume2, VolumeX, X } from "lucide-react";
+import { BarChart3, Bot, CalendarDays, Check, ChevronLeft, ChevronRight, Download, Euro, Eye, EyeOff, Bell, Home, Inbox, LockKeyhole, Mail, Mic, Phone, Plus, Search, Send, Upload, Users, Volume2, VolumeX, X } from "lucide-react";
 import { BOOKING_ROOM_TYPES, BOOKING_TYPE_LABELS, getSafeBookingInventory } from "@/domain/booking/availability";
 import { validateReservationConflict } from "@/domain/reservations/conflicts";
 import { activeOnDate, addDaysISO, eachNight, monthKey, normalizeCheckout, overlapsMonth, todayISO } from "@/domain/reservations/dateRange";
@@ -1116,14 +1116,16 @@ function EnquiriesPreview({ onCreateReservation, onNewCountChange }: { onCreateR
             {visible.map((item) => {
               const active = item.id === selected.id;
               return (
-                <button
+                <div
                   key={item.id}
-                  type="button"
-                  onClick={() => setSelectedId(item.id)}
-                  className={`soft-card rounded-2xl border p-4 text-left transition ${active ? "border-brand-300 ring-2 ring-brand-100" : "border-transparent hover:border-stone-200"}`}
+                  className={`soft-card rounded-2xl border p-4 transition ${active ? "border-brand-300 ring-2 ring-brand-100" : "border-transparent hover:border-stone-200"}`}
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedId(item.id)}
+                      className="min-w-0 flex-1 text-left"
+                    >
                       <div className="flex flex-wrap items-center gap-2">
                         <strong className="text-base">{item.name}</strong>
                         {item.status === "new" ? (
@@ -1133,14 +1135,25 @@ function EnquiriesPreview({ onCreateReservation, onNewCountChange }: { onCreateR
                         )}
                       </div>
                       <p className="mt-1 text-sm font-bold text-clay">{item.propertyLabel} · {item.interest}</p>
+                      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-clay">
+                        <span>{formatShortDate(item.checkin)} → {formatShortDate(item.checkout)}</span>
+                        <span>{item.adults + item.children} гости</span>
+                      </div>
+                    </button>
+
+                    <div className="flex shrink-0 flex-col items-end gap-2">
+                      <span className="whitespace-nowrap text-xs font-bold text-stone-500">{item.receivedLabel}</span>
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs font-black text-clay shadow-sm transition hover:border-brand-200 hover:bg-cream"
+                        onClick={() => updateStatus(item.id, "dismissed").catch(() => setLoadError("Запитването не можа да се премести в архива."))}
+                        title="Маркирай като видяно и премести в архива"
+                      >
+                        <Check size={14} /> Видяно
+                      </button>
                     </div>
-                    <span className="whitespace-nowrap text-xs font-bold text-stone-500">{item.receivedLabel}</span>
                   </div>
-                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-clay">
-                    <span>{formatShortDate(item.checkin)} → {formatShortDate(item.checkout)}</span>
-                    <span>{item.adults + item.children} гости</span>
-                  </div>
-                </button>
+                </div>
               );
             })}
           </div>
