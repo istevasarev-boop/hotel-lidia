@@ -18,6 +18,7 @@ import { fetchCalendarWeather, fetchWeeklyWeather, type DailyWeather } from "@/l
 import { deleteHotelReservation, isFirebaseDataError, loadHotelData, saveHotelData } from "@/lib/firebase/db";
 import { hasFirebaseConfig } from "@/lib/firebase/client";
 import { getCurrentIdToken, listenAuth, loginWithEmail, logout } from "@/lib/firebase/auth";
+import { enablePersistentPushNotifications, type PushSetupState } from "@/lib/push";
 import { createBackup, createDailyBackupIfNeeded, listBackups, restoreBackup, type BackupListItem } from "@/lib/firebase/backups";
 import { EstiExportModal } from "@/components/esti/EstiExportModal";
 import type { User } from "firebase/auth";
@@ -973,11 +974,6 @@ function notifyNewEnquiry(enquiry: PreviewEnquiry) {
   }
 }
 
-async function requestEnquiryNotifications(): Promise<NotificationPermission | "unsupported"> {
-  if (typeof window === "undefined" || !("Notification" in window)) return "unsupported";
-  if (Notification.permission === "granted") return "granted";
-  return Notification.requestPermission();
-}
 
 function EnquiriesPreview({ onCreateReservation, onNewCountChange }: { onCreateReservation: (enquiry: PreviewEnquiry) => void; onNewCountChange?: (count: number) => void }) {
   const [enquiries, setEnquiries] = useState<PreviewEnquiry[]>([]);
@@ -986,7 +982,7 @@ function EnquiriesPreview({ onCreateReservation, onNewCountChange }: { onCreateR
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const seenIdsRef = useRef<Set<string> | null>(null);
-  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">(
+  const [notificationPermission, setNotificationPermission] = useState<PushSetupState>(
     typeof window !== "undefined" && "Notification" in window ? Notification.permission : "unsupported"
   );
 
@@ -1067,12 +1063,20 @@ function EnquiriesPreview({ onCreateReservation, onNewCountChange }: { onCreateR
               type="button"
               className="rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm font-black text-clay"
               onClick={async () => {
-                const next = await requestEnquiryNotifications();
+                const next = await enablePersistentPushNotifications();
                 setNotificationPermission(next);
               }}
             >
               <Bell size={15} className="mr-1.5 inline" />
-              {notificationPermission === "granted" ? "Нотификации включени" : notificationPermission === "denied" ? "Нотификации блокирани" : "Включи нотификации"}
+              {notificationPermission === "granted"
+                ? "Нотификации включени"
+                : notificationPermission === "denied"
+                  ? "Нотификации блокирани"
+                  : notificationPermission === "needs_install"
+                    ? "Добави апа на Home Screen"
+                    : notificationPermission === "setup_error"
+                      ? "Push настройката не успя"
+                      : "Включи нотификации"}
             </button>
             <button className={`rounded-xl px-3 py-2 text-sm font-black ${filter === "all" ? "bg-brand-600 text-white" : "bg-cream text-clay"}`} onClick={() => setFilter("all")}>Всички</button>
             <button className={`rounded-xl px-3 py-2 text-sm font-black ${filter === "new" ? "bg-brand-600 text-white" : "bg-cream text-clay"}`} onClick={() => setFilter("new")}>Нови ({newCount})</button>
