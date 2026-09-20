@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
       "content-type": "application/json",
       "x-hotel-enquiries-secret": secret
     },
-    body: JSON.stringify({ subscription }),
+    body: JSON.stringify(subscription),
     cache: "no-store"
   });
 
