@@ -267,6 +267,7 @@ export function HotelApp({
   const [estiReservation, setEstiReservation] = useState<Reservation | null>(null);
   const [calendarPickMode, setCalendarPickMode] = useState<"free_rooms" | null>(null);
   const [online, setOnline] = useState(true);
+  const [enquiryNewCount, setEnquiryNewCount] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const handledInitialEditRef = useRef(false);
   const latestDataRef = useRef(initialData);
@@ -347,6 +348,38 @@ export function HotelApp({
       setAuthReady(true);
     }
   }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setEnquiryNewCount(0);
+      return;
+    }
+
+    let cancelled = false;
+    async function refreshEnquiryBadge() {
+      try {
+        const idToken = await getCurrentIdToken();
+        const response = await fetch("/api/enquiries", {
+          cache: "no-store",
+          headers: idToken ? { "x-firebase-id-token": idToken } : undefined
+        });
+        if (!response.ok) return;
+        const payload = await response.json() as { enquiries?: Array<{ status?: string }> };
+        if (!cancelled) {
+          setEnquiryNewCount((payload.enquiries || []).filter((item) => item.status === "new").length);
+        }
+      } catch {
+        // Keep the last known badge count if a background refresh fails.
+      }
+    }
+
+    refreshEnquiryBadge();
+    const interval = window.setInterval(refreshEnquiryBadge, 30000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [user]);
 
   useEffect(() => {
     if (!initialNewReservation) return;
@@ -696,7 +729,7 @@ export function HotelApp({
         <TabButton active={tab === "calendar"} href={`/?tab=calendar&property=${activeProperty}`} icon={<CalendarDays size={18} />} label="Календар" onClick={() => setTab("calendar")} />
         <TabButton active={tab === "transactions"} href={`/?tab=transactions&property=${activeProperty}`} icon={<Euro size={18} />} label="Приходи/Разходи" onClick={() => setTab("transactions")} />
         <TabButton active={tab === "finance"} href={`/?tab=finance&property=${activeProperty}`} icon={<Euro size={18} />} label="Финанси" onClick={() => setTab("finance")} />
-        <TabButton active={tab === "enquiries"} href={`/?tab=enquiries&property=${activeProperty}`} icon={<Inbox size={18} />} label="Запитвания" onClick={() => setTab("enquiries")} />
+        <TabButton active={tab === "enquiries"} href={`/?tab=enquiries&property=${activeProperty}`} icon={<Inbox size={18} />} label="Запитвания" onClick={() => setTab("enquiries")} badge={enquiryNewCount} />
       </section>
 
       {initialDataLoading && <AppSectionSkeleton />}
@@ -794,7 +827,7 @@ export function HotelApp({
       )}
       {tab === "transactions" && !initialDataLoading && <TransactionsView data={data} month={month} setMonth={setMonth} addRow={addFinanceRow} updateRow={updateFinanceRow} removeRow={removeFinanceRow} />}
       {tab === "finance" && !initialDataLoading && <FinanceView data={data} unlocked={financeUnlocked} setUnlocked={setFinanceUnlocked} />}
-      {tab === "enquiries" && !initialDataLoading && <EnquiriesPreview onCreateReservation={(enquiry) => openNewReservation(enquiry.propertyId, enquiry.checkin, "", {
+      {tab === "enquiries" && !initialDataLoading && <EnquiriesPreview onNewCountChange={setEnquiryNewCount} onCreateReservation={(enquiry) => openNewReservation(enquiry.propertyId, enquiry.checkin, "", {
         ...createReservationDraft(enquiry.propertyId, enquiry.checkin),
         rooms: enquiry.rooms,
         checkout: enquiry.checkout,
@@ -814,7 +847,7 @@ export function HotelApp({
         <TabButton active={tab === "calendar"} href={`/?tab=calendar&property=${activeProperty}`} icon={<CalendarDays size={19} />} label="Календар" onClick={() => setTab("calendar")} compact />
         <TabButton active={tab === "transactions"} href={`/?tab=transactions&property=${activeProperty}`} icon={<Euro size={19} />} label="Приходи/Разходи" onClick={() => setTab("transactions")} compact />
         <TabButton active={tab === "finance"} href={`/?tab=finance&property=${activeProperty}`} icon={<BarChart3 size={19} />} label="Финанси" onClick={() => setTab("finance")} compact />
-        <TabButton active={tab === "enquiries"} href={`/?tab=enquiries&property=${activeProperty}`} icon={<Inbox size={19} />} label="Запитвания" onClick={() => setTab("enquiries")} compact />
+        <TabButton active={tab === "enquiries"} href={`/?tab=enquiries&property=${activeProperty}`} icon={<Inbox size={19} />} label="Запитвания" onClick={() => setTab("enquiries")} badge={enquiryNewCount} compact />
       </nav>
 
       {!initialDataLoading && (
@@ -946,7 +979,7 @@ async function requestEnquiryNotifications(): Promise<NotificationPermission | "
   return Notification.requestPermission();
 }
 
-function EnquiriesPreview({ onCreateReservation }: { onCreateReservation: (enquiry: PreviewEnquiry) => void }) {
+function EnquiriesPreview({ onCreateReservation, onNewCountChange }: { onCreateReservation: (enquiry: PreviewEnquiry) => void; onNewCountChange?: (count: number) => void }) {
   const [enquiries, setEnquiries] = useState<PreviewEnquiry[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [filter, setFilter] = useState<"all" | "new">("all");
@@ -968,6 +1001,7 @@ function EnquiriesPreview({ onCreateReservation }: { onCreateReservation: (enqui
       const payload = await response.json() as { enquiries?: ApiEnquiry[] };
       const next = (payload.enquiries || []).map(mapApiEnquiry);
       setEnquiries(next);
+      onNewCountChange?.(next.filter((item) => item.status === "new").length);
       const activeNext = next.filter((item) => item.status !== "dismissed");
       setSelectedId((current) => current && activeNext.some((item) => item.id === current) ? current : activeNext[0]?.id || "");
       setLoadError("");
@@ -997,7 +1031,11 @@ function EnquiriesPreview({ onCreateReservation }: { onCreateReservation: (enqui
       body: JSON.stringify({ id, status })
     });
     if (!response.ok) throw new Error(`Enquiry update failed: ${response.status}`);
-    setEnquiries((current) => current.map((item) => item.id === id ? { ...item, status } : item));
+    setEnquiries((current) => {
+      const next = current.map((item) => item.id === id ? { ...item, status } : item);
+      onNewCountChange?.(next.filter((item) => item.status === "new").length);
+      return next;
+    });
   }
 
   useEffect(() => {
@@ -1306,9 +1344,9 @@ function shiftMonthKey(month: string, delta: number): string {
   return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function TabButton({ active, href, icon, label, onClick, compact = false }: { active: boolean; href: string; icon: ReactNode; label: string; onClick: () => void; compact?: boolean }) {
+function TabButton({ active, href, icon, label, onClick, compact = false, badge = 0 }: { active: boolean; href: string; icon: ReactNode; label: string; onClick: () => void; compact?: boolean; badge?: number }) {
   return (
-    <a href={href} className={`tap-target flex min-w-0 items-center justify-center gap-2 rounded-xl px-2 py-2 text-center font-bold leading-tight transition ${active ? "bg-brand-600 text-white shadow-sm" : "bg-transparent text-clay hover:bg-white"} ${compact ? "flex-col gap-1 text-[11px]" : ""}`} onClick={(event) => {
+    <a href={href} className={`tap-target relative flex min-w-0 items-center justify-center gap-2 rounded-xl px-2 py-2 text-center font-bold leading-tight transition ${active ? "bg-brand-600 text-white shadow-sm" : "bg-transparent text-clay hover:bg-white"} ${compact ? "flex-col gap-1 text-[11px]" : ""}`} onClick={(event) => {
       event.preventDefault();
       debugClick(`tab ${label}`);
       window.history.replaceState(null, "", href);
@@ -1316,6 +1354,14 @@ function TabButton({ active, href, icon, label, onClick, compact = false }: { ac
     }}>
       {icon}
       {label}
+      {badge > 0 && (
+        <span
+          className="absolute right-1.5 top-1.5 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-black leading-none text-white shadow-sm ring-2 ring-white"
+          aria-label={`${badge} нови запитвания`}
+        >
+          {badge > 99 ? "99+" : badge}
+        </span>
+      )}
     </a>
   );
 }
