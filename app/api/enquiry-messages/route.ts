@@ -1,16 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { cookies } from "next/headers";
 const SESSION_COOKIE = "hotel_lidia_session";
-const OWNER_PREVIEW = process.env.VERCEL_ENV === "preview" && process.env.VERCEL_GIT_COMMIT_REF === "feature/enquiry-correspondence-preview";
-const OWNER_TEST_ENQUIRY = "9c0e8a29-9951-462c-801c-8c0d63b13ca9";
+const CORRESPONDENCE_PREVIEW = process.env.VERCEL_ENV === "preview" && process.env.VERCEL_GIT_COMMIT_REF === "feature/enquiry-correspondence-preview";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 async function proxy(request: NextRequest) {
   const auth = await verifySession(request);
   if (!auth.ok) return auth.response;
-  if (!OWNER_PREVIEW && process.env.ENQUIRY_REPLIES_ENABLED !== "true") return NextResponse.json({error:"not_configured"}, {status:503});
+  if (!CORRESPONDENCE_PREVIEW && process.env.ENQUIRY_REPLIES_ENABLED !== "true") return NextResponse.json({error:"not_configured"}, {status:503});
   const secret = process.env.EXTERNAL_ENQUIRIES_SECRET;
   if (!secret) return NextResponse.json({error:"not_configured"}, {status:503});
-  const base = OWNER_PREVIEW ? "https://project--fe65f824-857b-4d2f-b15d-72d08bc0b687-dev.lovable.app/api/public/enquiries" : process.env.HOTEL_WEBSITE_ENQUIRIES_URL || "https://www.vilalidia.bg/api/public/enquiries";
+  const base = CORRESPONDENCE_PREVIEW ? "https://project--fe65f824-857b-4d2f-b15d-72d08bc0b687-dev.lovable.app/api/public/enquiries" : process.env.HOTEL_WEBSITE_ENQUIRIES_URL || "https://www.vilalidia.bg/api/public/enquiries";
   const url = new URL(base);
   url.pathname = url.pathname.replace(/\/enquiries\/?$/, "/enquiry-messages");
   url.search = "";
@@ -19,7 +18,6 @@ async function proxy(request: NextRequest) {
   if (request.method === "GET") {
     const enquiryId = request.nextUrl.searchParams.get("enquiryId") || "";
     if (!UUID.test(enquiryId)) return NextResponse.json({error:"invalid_input"}, {status:400});
-    if (OWNER_PREVIEW && enquiryId !== OWNER_TEST_ENQUIRY) return NextResponse.json({error:"owner_test_only"}, {status:403});
     url.searchParams.set("enquiryId", enquiryId);
   } else {
     if (request.headers.get("origin") !== request.nextUrl.origin) return NextResponse.json({error:"invalid_origin"}, {status:403});
@@ -28,7 +26,6 @@ async function proxy(request: NextRequest) {
     let data;
     try { data = JSON.parse(raw); } catch { return NextResponse.json({error:"invalid_json"}, {status:400}); }
     if (!data || !UUID.test(data.enquiryId || "")) return NextResponse.json({error:"invalid_input"}, {status:400});
-    if (OWNER_PREVIEW && data.enquiryId !== OWNER_TEST_ENQUIRY) return NextResponse.json({error:"owner_test_only"}, {status:403});
     if (request.method === "POST") {
       if (typeof data.body !== "string" || !data.body.trim() || data.body.length > 5000 || !UUID.test(data.clientMessageId || "")) return NextResponse.json({error:"invalid_input"}, {status:400});
       body = JSON.stringify({enquiryId:data.enquiryId,body:data.body.trim(),clientMessageId:data.clientMessageId});
