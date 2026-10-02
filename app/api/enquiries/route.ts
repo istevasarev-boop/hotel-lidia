@@ -4,7 +4,9 @@ import { getFirebaseAdminAuth, hasFirebaseAdminConfig } from "@/lib/firebase/adm
 
 const SESSION_COOKIE = "hotel_lidia_session";
 const WEBSITE_ENQUIRIES_URL =
-  process.env.HOTEL_WEBSITE_ENQUIRIES_URL || "https://www.vilalidia.bg/api/public/enquiries";
+  process.env.VERCEL_ENV === "preview" && process.env.VERCEL_GIT_COMMIT_REF === "feature/enquiry-correspondence-preview"
+    ? "https://project--fe65f824-857b-4d2f-b15d-72d08bc0b687-dev.lovable.app/api/public/enquiries"
+    : process.env.HOTEL_WEBSITE_ENQUIRIES_URL || "https://www.vilalidia.bg/api/public/enquiries";
 
 export async function GET(request: NextRequest) {
   const auth = await verifySession(request);

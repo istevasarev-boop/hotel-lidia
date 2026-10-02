@@ -20,6 +20,7 @@ import { hasFirebaseConfig } from "@/lib/firebase/client";
 import { getCurrentIdToken, listenAuth, loginWithEmail, logout } from "@/lib/firebase/auth";
 import { enablePersistentPushNotifications, type PushSetupState } from "@/lib/push";
 import { createBackup, createDailyBackupIfNeeded, listBackups, restoreBackup, type BackupListItem } from "@/lib/firebase/backups";
+import { EnquiryConversation } from "@/components/EnquiryConversation";
 import { EstiExportModal } from "@/components/esti/EstiExportModal";
 import type { User } from "firebase/auth";
 
@@ -890,6 +891,7 @@ export function HotelApp({
 
 
 type PreviewEnquiry = {
+  unreadCount?: number;
   id: string;
   propertyId: PropertyId;
   propertyLabel: string;
@@ -909,6 +911,7 @@ type PreviewEnquiry = {
 };
 
 type ApiEnquiry = {
+  unreadCount?: number;
   id: string;
   property: "villa" | "guesthouse";
   checkin: string;
@@ -945,6 +948,7 @@ function mapApiEnquiry(item: ApiEnquiry): PreviewEnquiry {
     email: item.email,
     interest,
     notes: item.notes || undefined,
+    unreadCount: item.unreadCount || 0,
     receivedLabel: formatEnquiryReceived(item.createdAt),
     status: item.status,
     createdAt: item.createdAt
@@ -1128,6 +1132,7 @@ function EnquiriesPreview({ onCreateReservation, onNewCountChange }: { onCreateR
                     >
                       <div className="flex flex-wrap items-center gap-2">
                         <strong className="text-base">{item.name}</strong>
+                        {!!item.unreadCount && <span className="rounded-full bg-red-100 px-2 py-1 text-xs font-bold text-red-800">{item.unreadCount} непрочетени</span>}
                         {item.status === "new" ? (
                           <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-black text-amber-800">Ново</span>
                         ) : (
@@ -1203,6 +1208,8 @@ function EnquiriesPreview({ onCreateReservation, onNewCountChange }: { onCreateR
                 <p className="mt-2 font-semibold leading-relaxed text-clay">{selected.notes}</p>
               </div>
             )}
+
+            <EnquiryConversation key={selected.id} enquiryId={selected.id} email={selected.email} />
 
             <div className="mt-5 flex flex-wrap gap-2 border-t border-stone-100 pt-4">
               <button
