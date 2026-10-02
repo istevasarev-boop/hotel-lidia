@@ -15,7 +15,7 @@ async function api(enquiryId:string, method="GET", data?:object) {
   if (!res.ok) throw new Error(res.status===503?"Кореспонденцията още не е активирана.":res.status===401?"Влезте отново в профила си.":"Заявката не е потвърдена. Проверете историята преди повторен опит.");
   return payload;
 }
-export function EnquiryConversation({enquiryId,email}:{enquiryId:string;email:string}) {
+export function EnquiryConversation({enquiryId,email,transport=api}:{enquiryId:string;email:string;transport?:typeof api}) {
   const [messages,setMessages]=useState<Message[]>([]);
   const [draft,setDraft]=useState("");
   const [loading,setLoading]=useState(true);
@@ -29,14 +29,14 @@ export function EnquiryConversation({enquiryId,email}:{enquiryId:string;email:st
   const read=useRef("");
   const refresh=useCallback(async()=>{
     try {
-      const payload=await api(enquiryId);
+      const payload=await transport(enquiryId);
       if(!alive.current)return;
       setMessages(payload.messages||[]);
       setConfigured(payload.configured===true);
       setError("");
     }catch(e){if(alive.current){setError(e instanceof Error?e.message:"Грешка при зареждане.");setConfigured(false);}}
     finally{if(alive.current)setLoading(false);}
-  },[enquiryId]);
+  },[enquiryId,transport]);
   useEffect(()=>{
     alive.current=true;
     void refresh();
@@ -46,7 +46,7 @@ export function EnquiryConversation({enquiryId,email}:{enquiryId:string;email:st
   async function markRead(){
     const last=[...messages].reverse().find(m=>m.direction==="inbound");
     if(!last||read.current===last.id)return;
-    try {await api(enquiryId,"PATCH",{lastReadMessageId:last.id});read.current=last.id;}catch{setError("Прочитането не е потвърдено. Опитайте отново.");}
+    try {await transport(enquiryId,"PATCH",{lastReadMessageId:last.id});read.current=last.id;}catch{setError("Прочитането не е потвърдено. Опитайте отново.");}
   }
   async function send(){
     if(busy.current||!configured||!(pending?.body||draft.trim()))return;
@@ -54,7 +54,7 @@ export function EnquiryConversation({enquiryId,email}:{enquiryId:string;email:st
     const attempt=pending||{body:draft.trim(),clientMessageId:crypto.randomUUID()};
     setPending(attempt);
     try{
-      const payload=await api(enquiryId,"POST",attempt);
+      const payload=await transport(enquiryId,"POST",attempt);
       if(!payload.message?.id)throw new Error("Липсва потвърждение за съобщението.");
       if(!alive.current)return;
       setMessages(current=>[...current.filter(m=>m.id!==payload.message.id),payload.message]);
