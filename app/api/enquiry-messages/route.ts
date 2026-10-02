@@ -6,7 +6,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 async function proxy(request: NextRequest) {
   const auth = await verifySession(request);
   if (!auth.ok) return auth.response;
-  if (!CORRESPONDENCE_PREVIEW && process.env.ENQUIRY_REPLIES_ENABLED !== "true") return NextResponse.json({error:"not_configured"}, {status:503});
+  // Release enabled by owner approval; explicit false is the emergency kill switch.
+  if (process.env.ENQUIRY_REPLIES_ENABLED === "false") return NextResponse.json({error:"not_configured"}, {status:503});
   const secret = process.env.EXTERNAL_ENQUIRIES_SECRET;
   if (!secret) return NextResponse.json({error:"not_configured"}, {status:503});
   const base = CORRESPONDENCE_PREVIEW ? "https://project--fe65f824-857b-4d2f-b15d-72d08bc0b687-dev.lovable.app/api/public/enquiries" : process.env.HOTEL_WEBSITE_ENQUIRIES_URL || "https://www.vilalidia.bg/api/public/enquiries";
