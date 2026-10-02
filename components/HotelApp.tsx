@@ -891,6 +891,7 @@ export function HotelApp({
 
 
 type PreviewEnquiry = {
+  unreadCount?: number;
   id: string;
   propertyId: PropertyId;
   propertyLabel: string;
@@ -910,6 +911,7 @@ type PreviewEnquiry = {
 };
 
 type ApiEnquiry = {
+  unreadCount?: number;
   id: string;
   property: "villa" | "guesthouse";
   checkin: string;
@@ -946,6 +948,7 @@ function mapApiEnquiry(item: ApiEnquiry): PreviewEnquiry {
     email: item.email,
     interest,
     notes: item.notes || undefined,
+    unreadCount: item.unreadCount || 0,
     receivedLabel: formatEnquiryReceived(item.createdAt),
     status: item.status,
     createdAt: item.createdAt
@@ -1129,6 +1132,7 @@ function EnquiriesPreview({ onCreateReservation, onNewCountChange }: { onCreateR
                     >
                       <div className="flex flex-wrap items-center gap-2">
                         <strong className="text-base">{item.name}</strong>
+                        {!!item.unreadCount && <span className="rounded-full bg-red-100 px-2 py-1 text-xs font-bold text-red-800">{item.unreadCount} непрочетени</span>}
                         {item.status === "new" ? (
                           <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-black text-amber-800">Ново</span>
                         ) : (
