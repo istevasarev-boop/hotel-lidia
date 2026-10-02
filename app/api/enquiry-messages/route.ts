@@ -26,7 +26,7 @@ async function proxy(request: NextRequest) {
     try { data = JSON.parse(raw); } catch { return NextResponse.json({error:"invalid_json"}, {status:400}); }
     if (!data || !UUID.test(data.enquiryId || "")) return NextResponse.json({error:"invalid_input"}, {status:400});
     if (request.method === "POST") {
-      if (typeof data.body !== "string" || !data.body.trim() || data.body.length > 10000 || !UUID.test(data.clientMessageId || "")) return NextResponse.json({error:"invalid_input"}, {status:400});
+      if (typeof data.body !== "string" || !data.body.trim() || data.body.length > 5000 || !UUID.test(data.clientMessageId || "")) return NextResponse.json({error:"invalid_input"}, {status:400});
       body = JSON.stringify({enquiryId:data.enquiryId,body:data.body.trim(),clientMessageId:data.clientMessageId});
     } else {
       if (!UUID.test(data.lastReadMessageId || "")) return NextResponse.json({error:"invalid_input"}, {status:400});
