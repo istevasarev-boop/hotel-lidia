@@ -20,6 +20,7 @@ import { hasFirebaseConfig } from "@/lib/firebase/client";
 import { getCurrentIdToken, listenAuth, loginWithEmail, logout } from "@/lib/firebase/auth";
 import { enablePersistentPushNotifications, type PushSetupState } from "@/lib/push";
 import { createBackup, createDailyBackupIfNeeded, listBackups, restoreBackup, type BackupListItem } from "@/lib/firebase/backups";
+import { EnquiryConversation } from "@/components/EnquiryConversation";
 import { EstiExportModal } from "@/components/esti/EstiExportModal";
 import type { User } from "firebase/auth";
 
@@ -1203,6 +1204,8 @@ function EnquiriesPreview({ onCreateReservation, onNewCountChange }: { onCreateR
                 <p className="mt-2 font-semibold leading-relaxed text-clay">{selected.notes}</p>
               </div>
             )}
+
+            <EnquiryConversation key={selected.id} enquiryId={selected.id} email={selected.email} />
 
             <div className="mt-5 flex flex-wrap gap-2 border-t border-stone-100 pt-4">
               <button
