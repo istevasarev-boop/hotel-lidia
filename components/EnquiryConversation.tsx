@@ -11,6 +11,7 @@ async function api(enquiryId:string, method="GET", data?:object) {
     body:data?JSON.stringify({enquiryId,...data}):undefined
   });
   const payload=await res.json();
+  if (payload.message?.id) return payload;
   if (!res.ok) throw new Error(res.status===503?"Кореспонденцията още не е активирана.":res.status===401?"Влезте отново в профила си.":"Заявката не е потвърдена. Проверете историята преди повторен опит.");
   return payload;
 }
@@ -77,7 +78,7 @@ export function EnquiryConversation({enquiryId,email}:{enquiryId:string;email:st
     {!loading&&!error&&messages.length===0&&<p className="my-3 text-sm text-stone-600">Все още няма кореспонденция.</p>}
     {messages.some(m=>m.direction==="inbound")&&<button type="button" onClick={()=>void markRead()} className="mb-3 rounded-xl border px-3 py-2 text-sm">Маркирай отговорите като прочетени</button>}
     <label className="block text-sm font-bold" htmlFor={"reply-"+enquiryId}>Вашият отговор</label>
-    <textarea id={"reply-"+enquiryId} value={draft} onChange={e=>setDraft(e.target.value)} maxLength={10000} rows={5} disabled={sending||!!pending||!configured} className="mt-2 w-full rounded-xl border border-stone-300 p-3 text-base focus:outline-none focus:ring-2 focus:ring-brand-600 disabled:bg-stone-100"/>
+    <textarea id={"reply-"+enquiryId} value={draft} onChange={e=>setDraft(e.target.value)} maxLength={5000} rows={5} disabled={sending||!!pending||!configured} className="mt-2 w-full rounded-xl border border-stone-300 p-3 text-base focus:outline-none focus:ring-2 focus:ring-brand-600 disabled:bg-stone-100"/>
     {sendError&&<p role="alert" className="mt-2 text-sm text-red-700">{sendError} Повторният опит използва същия идентификатор, за да избегне двойно изпращане.</p>}
     <button type="button" onClick={()=>void send()} disabled={sending||!configured||!(pending?.body||draft.trim())} className="mt-3 rounded-xl bg-brand-600 px-4 py-3 font-bold text-white disabled:opacity-50">{sending?"Изпращане...":pending?"Провери / повтори същото изпращане":"Изпрати отговор"}</button>
     <button type="button" onClick={()=>void refresh()} className="ml-2 mt-3 rounded-xl border px-3 py-3 text-sm">Обнови</button>
