@@ -1506,21 +1506,6 @@ function UpcomingView({
   const tomorrow = addDaysISO(today, 1);
   const weekDates = useMemo(() => getCurrentWeekDays(today), [today]);
   const [weatherByDate, setWeatherByDate] = useState<Record<string, DailyWeather>>({});
-  const [calendarMode, setCalendarMode] = useState<"month" | "week">("month");
-  const [weekAnchor, setWeekAnchor] = useState(initialSelectedDate || (monthKey(todayISO()) === month ? todayISO() : `${month}-01`));
-  const lastCalendarDate = useRef(initialSelectedDate);
-  const weekStart = addDaysISO(weekAnchor, -((parseISODate(weekAnchor).getDay() + 6) % 7));
-  const weekEnd = addDaysISO(weekStart, 6);
-
-  useEffect(() => {
-    setWeekAnchor(monthKey(todayISO()) === month ? todayISO() : `${month}-01`);
-    lastCalendarDate.current = undefined;
-  }, [month]);
-
-  function showWeek() {
-    setWeekAnchor(selectedDate || lastCalendarDate.current || (monthKey(todayISO()) === month ? todayISO() : `${month}-01`));
-    setCalendarMode("week");
-  }
 
   const activeReservations = reservations.filter((reservation) => reservation.status !== "cancelled");
   const todayArrivals = sortOperationalReservations(activeReservations.filter((reservation) => reservation.checkin === today));
@@ -2648,6 +2633,22 @@ export function CalendarView({
   const [openHolidayDate, setOpenHolidayDate] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(initialSelectedDate || null);
   const [weatherByDate, setWeatherByDate] = useState<Record<string, DailyWeather>>({});
+  const [calendarMode, setCalendarMode] = useState<"month" | "week">("month");
+  const [weekAnchor, setWeekAnchor] = useState(initialSelectedDate || (monthKey(todayISO()) === month ? todayISO() : `${month}-01`));
+  const lastCalendarDate = useRef(initialSelectedDate);
+  const weekStart = addDaysISO(weekAnchor, -((parseISODate(weekAnchor).getDay() + 6) % 7));
+  const weekEnd = addDaysISO(weekStart, 6);
+
+  useEffect(() => {
+    setWeekAnchor(monthKey(todayISO()) === month ? todayISO() : `${month}-01`);
+    lastCalendarDate.current = undefined;
+  }, [month]);
+
+  function showWeek() {
+    setWeekAnchor(selectedDate || lastCalendarDate.current || (monthKey(todayISO()) === month ? todayISO() : `${month}-01`));
+    setCalendarMode("week");
+  }
+
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const today = todayISO();
   const days = new Date(year, monthNumber, 0).getDate();
