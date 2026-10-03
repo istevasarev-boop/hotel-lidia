@@ -64,7 +64,7 @@ export default function EnquiryAvailabilityDemo() {
       </article>
     </div>
   </div>
-  <dialog ref={dialogRef} onCancel={() => setDraft(null)} onClose={() => setDraft(null)} className="m-auto max-h-[90dvh] w-[calc(100%-2rem)] max-w-xl overflow-y-auto rounded-3xl bg-white p-0 text-ink shadow-xl backdrop:bg-black/30">
+  <dialog ref={dialogRef} onCancel={() => setDraft(null)} onClose={() => setDraft(null)} className="m-auto max-h-[90dvh] w-[calc(100%_-_2rem)] max-w-xl overflow-y-auto rounded-3xl bg-white p-0 text-ink shadow-xl backdrop:bg-black/30">
     {draft && <form className="p-5 sm:p-6" onSubmit={event => {
       event.preventDefault();
       if (!calendarReady) { setFormError("Няма актуална връзка с календара."); return; }
