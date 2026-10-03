@@ -20,7 +20,7 @@ import { hasFirebaseConfig } from "@/lib/firebase/client";
 import { getCurrentIdToken, listenAuth, loginWithEmail, logout } from "@/lib/firebase/auth";
 import { enablePersistentPushNotifications, type PushSetupState } from "@/lib/push";
 import { createBackup, createDailyBackupIfNeeded, listBackups, restoreBackup, type BackupListItem } from "@/lib/firebase/backups";
-import { getEnquiryAvailability } from "@/domain/enquiries/availability";
+import { getEnquiryAvailability, type AvailabilityRequest } from "@/domain/enquiries/availability";
 import { EnquiryAvailabilityBadge } from "@/components/EnquiryAvailabilityBadge";
 import { EnquiryConversation } from "@/components/EnquiryConversation";
 import { EstiExportModal } from "@/components/esti/EstiExportModal";
@@ -28,7 +28,7 @@ import type { User } from "firebase/auth";
 
 type Tab = "upcoming" | "calendar" | "transactions" | "finance" | "enquiries";
 type ListFilter = "all" | "today" | "next7" | "month" | "noDeposit" | "history";
-type ReservationDraft = Omit<Reservation, "id" | "createdAt" | "updatedAt" | "status"> & { id?: string };
+type ReservationDraft = Omit<Reservation, "id" | "createdAt" | "updatedAt" | "status"> & { id?: string; enquiryContext?: AvailabilityRequest & { id: string } };
 type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
 type SpeechRecognitionLike = {
   lang: string;
@@ -482,8 +482,9 @@ export function HotelApp({
     const checkout = normalizeCheckout(draft.checkin, draft.checkout);
     const id = draft.id || createId("res");
     const now = new Date().toISOString();
+    const { enquiryContext, ...reservationFields } = draft;
     const reservation: Reservation = {
-      ...draft,
+      ...reservationFields,
       id,
       checkout,
       rooms: draft.rooms.includes("all") ? ["all"] : draft.rooms.map(String).sort((a, b) => Number(a) - Number(b)),
@@ -518,7 +519,26 @@ export function HotelApp({
     }
 
     try {
-      await persist(upsertReservation(data, reservation));
+      let saveData = data;
+      if (enquiryContext) {
+        const loaded = await loadHotelData();
+        if (loaded.source !== "cloud") throw new Error("Няма актуална връзка с календара.");
+        saveData = loaded.data;
+        const freshReservations = Object.values(saveData.reservations);
+        if (freshReservations.some(item => item.notes.includes(`[enquiry:${enquiryContext.id}]`))) {
+          window.alert("Вече има създадена резервация от това запитване.");
+          return;
+        }
+        const availability = getEnquiryAvailability({ ...enquiryContext, propertyId: reservation.propertyId, checkin: reservation.checkin, checkout: reservation.checkout }, freshReservations);
+        const whole = enquiryContext.requestedRooms.includes("whole");
+        if (availability.status === "occupied" || !availability.freeRooms.length || (!whole && reservation.rooms.some(room => !availability.freeRooms.includes(room)))) {
+          window.alert("Наличността се е променила. Проверете стаите и датите.");
+          return;
+        }
+        const freshConflict = validateReservationConflict(reservation, freshReservations);
+        if (!freshConflict.ok) { window.alert(freshConflict.message || "Има застъпване."); return; }
+      }
+      await persist(upsertReservation(saveData, reservation));
       pulsePrivacyHaptic();
       setModalDraft(null);
     } catch (error) {
@@ -834,11 +854,14 @@ export function HotelApp({
       {tab === "enquiries" && !initialDataLoading && <EnquiriesPreview reservations={reservations} onNewCountChange={setEnquiryNewCount} onCreateReservation={(enquiry) => openNewReservation(enquiry.propertyId, enquiry.checkin, "", {
         ...createReservationDraft(enquiry.propertyId, enquiry.checkin),
         rooms: enquiry.rooms,
+        enquiryContext: enquiry,
+        source: "vilalidia.bg",
         checkout: enquiry.checkout,
         guestName: enquiry.name,
         phone: enquiry.phone,
         notes: [
           "Запитване от vilalidia.bg",
+          `[enquiry:${enquiry.id}]`,
           `Email: ${enquiry.email}`,
           `Гости: ${enquiry.adults} възрастни${enquiry.children ? `, ${enquiry.children} деца` : ""}`,
           `Интерес: ${enquiry.interest}`,
@@ -1000,7 +1023,7 @@ function EnquiriesPreview({ reservations, onCreateReservation, onNewCountChange 
       inFlight = true;
       try {
         const loaded = await loadHotelData();
-        if (!cancelled) setCalendar({ reservations: Object.values(loaded.data.reservations), ready: loaded.source === "cloud" });
+        if (!cancelled) setCalendar({ reservations: Object.values(loaded.data.reservations), ready: loaded.source === "cloud" && navigator.onLine });
       } catch {
         if (!cancelled) setCalendar(current => ({ ...current, ready: false }));
       } finally { inFlight = false; }
@@ -1106,6 +1129,9 @@ function EnquiriesPreview({ reservations, onCreateReservation, onNewCountChange 
   const visible = activeEnquiries.filter((item) => filter === "all" || item.status === "new");
   const selected = activeEnquiries.find((item) => item.id === selectedId) || visible[0] || activeEnquiries[0];
   const newCount = activeEnquiries.filter((item) => item.status === "new").length;
+  const selectedAvailability = selected ? availabilityFor(selected) : null;
+  const alreadyCreated = selected ? calendar.reservations.some(item => item.notes.includes(`[enquiry:${selected.id}]`)) : false;
+  const canCreate = calendar.ready && !alreadyCreated && selectedAvailability?.status !== "occupied" && !!selectedAvailability?.freeRooms.length;
 
   return (
     <section className="grid gap-4">
@@ -1220,10 +1246,11 @@ function EnquiriesPreview({ reservations, onCreateReservation, onNewCountChange 
               </div>
               <button
                 type="button"
-                className="tap-target rounded-xl bg-brand-600 px-4 py-3 font-black text-white shadow-sm hover:bg-brand-700"
-                onClick={() => onCreateReservation(selected)}
+                className="tap-target rounded-xl bg-brand-600 px-4 py-3 font-black text-white shadow-sm hover:bg-brand-700 disabled:bg-stone-200 disabled:text-stone-600"
+                disabled={!canCreate}
+                onClick={() => { if (canCreate) onCreateReservation(selected); }}
               >
-                <Plus size={18} className="mr-2 inline" /> Създай резервация
+                <Plus size={18} className="mr-2 inline" /> {alreadyCreated ? "Вече е създадена" : "Създай резервация"}
               </button>
             </div>
 
@@ -3648,6 +3675,10 @@ function FinancePanel({ title, kind, types, rows, addRow, updateRow, removeRow }
 
 function ReservationModal({ draft, reservations, setDraft, closeHref, onClose, onSave, onDelete, onGuestMemory }: { draft: ReservationDraft; reservations: Reservation[]; setDraft: (draft: ReservationDraft | null) => void; closeHref: string; onClose: () => void; onSave: (draft: ReservationDraft) => void; onDelete?: (id: string) => void; onGuestMemory: (reservation: Reservation | ReservationDraft) => void }) {
   const property = PROPERTIES.find((item) => item.id === draft.propertyId) || PROPERTIES[0];
+  const [capacityConfirmed, setCapacityConfirmed] = useState(false);
+  const enquiryAvailability = draft.enquiryContext ? getEnquiryAvailability({ ...draft.enquiryContext, propertyId: draft.propertyId, checkin: draft.checkin, checkout: draft.checkout }, reservations) : null;
+  const selectableRooms = enquiryAvailability ? property.rooms.filter(room => enquiryAvailability.freeRooms.includes(room)) : property.rooms;
+
   const guestMemory = useMemo(() => buildGuestMemorySummary(findGuestMemoryMatches(draft, reservations)), [draft, reservations]);
 
   function toggleRoom(room: RoomId | "all") {
@@ -3683,6 +3714,7 @@ function ReservationModal({ draft, reservations, setDraft, closeHref, onClose, o
           onDelete(draft.id);
           return;
         }
+        if (draft.enquiryContext && !capacityConfirmed) return;
         onSave(draft);
       }}>
         <div className="sheet-handle sm:hidden" />
@@ -3720,11 +3752,12 @@ function ReservationModal({ draft, reservations, setDraft, closeHref, onClose, o
             ))}
           </div>
         </FormSection>
+        {enquiryAvailability && <EnquiryAvailabilityBadge availability={enquiryAvailability} expanded />}
         <FormSection title="Стаи">
           <p className="mb-2 text-sm font-semibold text-clay">Може да избереш повече от една стая. Избраните стаи са оцветени в синьо.</p>
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
-            <Button type="button" className={`tap-target rounded-full border px-3 py-2 font-black ${draft.rooms.includes("all") ? "border-red-600 bg-red-500 text-white" : "border-stone-200 bg-white text-stone-700"}`} onClick={() => toggleRoom("all")}>{WHOLE_PROPERTY_LABEL}</Button>
-            {property.rooms.map((room) => (
+            <Button disabled={!!draft.enquiryContext && (draft.enquiryContext.requestedRooms[0] !== "whole" || enquiryAvailability?.status !== "available")} type="button" className={`tap-target rounded-full border px-3 py-2 font-black disabled:opacity-40 ${draft.rooms.includes("all") ? "border-red-600 bg-red-500 text-white" : "border-stone-200 bg-white text-stone-700"}`} onClick={() => toggleRoom("all")}>{WHOLE_PROPERTY_LABEL}</Button>
+            {selectableRooms.map((room) => (
               <Button type="button" key={room} className={`tap-target rounded-full border px-3 py-2 font-black ${draft.rooms.map(String).includes(room) ? "border-brand-700 bg-brand-600 text-white" : "border-stone-200 bg-white text-stone-700"}`} onClick={() => toggleRoom(room)}>
                 {room}
               </Button>
@@ -3776,6 +3809,7 @@ function ReservationModal({ draft, reservations, setDraft, closeHref, onClose, o
           </div>
           <textarea className="mt-1 min-h-20 w-full rounded-2xl border border-stone-200 bg-white p-3 outline-none focus:ring-2 focus:ring-brand-100 sm:min-h-24" value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} />
         </FormSection>
+        {draft.enquiryContext && <label className="mt-4 flex items-start gap-3 rounded-xl bg-white p-3 text-sm"><input type="checkbox" required checked={capacityConfirmed} onChange={event => setCapacityConfirmed(event.target.checked)} />Проверих, че избраното настаняване побира всички гости.</label>}
         <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           {draft.id && onDelete && <Button type="submit" name="action" value="delete" className="tap-target rounded-2xl border border-red-200 bg-white px-4 py-2 font-black text-red-600" formNoValidate onClick={() => {
             debugClick("reservation delete click");
