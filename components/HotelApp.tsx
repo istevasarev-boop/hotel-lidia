@@ -2854,6 +2854,11 @@ export function CalendarView({
       {selectedDate && (
         <DayDetailPanel
           date={selectedDate}
+          onDateChange={(date) => {
+            setSelectedDate(date);
+            lastCalendarDate.current = date;
+            if (calendarMode === "week") setWeekAnchor(date);
+          }}
           reservations={reservations}
           onClose={() => setSelectedDate(null)}
           onNew={(nextPropertyId, room) => {
@@ -2918,12 +2923,14 @@ function CalendarWeekCards({ reservations, weekStart, weatherByDate, onDay, onRo
 
 function DayDetailPanel({
   date,
+  onDateChange,
   reservations,
   onClose,
   onNew,
   onEdit
 }: {
   date: string;
+  onDateChange: (date: string) => void;
   reservations: Reservation[];
   onClose: () => void;
   onNew: (propertyId: PropertyId, room?: RoomId | "all") => void;
@@ -2938,13 +2945,25 @@ function DayDetailPanel({
         <div className="sheet-handle sm:hidden" />
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
-            <h3 className="text-2xl font-black text-ink">{formatDayDetailTitle(date)}</h3>
+            <h3 aria-live="polite" className="text-2xl font-black text-ink">{formatDayDetailTitle(date)}</h3>
             <p className="text-sm font-semibold text-clay">Вила Лидия и Къща Лидия</p>
             {holiday && <p className="mt-1 rounded-2xl bg-sky-50 px-3 py-2 text-sm font-bold text-sky-900">{holiday.holidayName}</p>}
           </div>
           <Button type="button" className="tap-target rounded-2xl border border-stone-200 bg-white px-4 py-2 font-black text-clay shadow-sm" onClick={onClose}>
             Затвори
           </Button>
+        </div>
+
+        <div className="mb-4 flex flex-wrap items-center gap-2" role="group" aria-label="Смяна на деня">
+          <Button aria-label="Предишен ден" onClick={() => onDateChange(addDaysISO(date, -1))}
+            className="flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-stone-200 bg-white p-3 text-ink hover:bg-stone-100 focus-visible:ring-2 focus-visible:ring-brand-600"><ChevronLeft size={20} /></Button>
+          <input type="date" aria-label="Избери дата" value={date} onChange={(event) => {
+            const value = event.target.value;
+            if (/^\d{4}-\d{2}-\d{2}$/.test(value) && value >= "0001-01-01") onDateChange(value);
+          }} className="min-h-11 min-w-0 flex-1 rounded-xl border border-stone-200 bg-white px-3 text-base font-bold text-ink focus-visible:ring-2 focus-visible:ring-brand-600 sm:flex-none" />
+          <Button aria-label="Следващ ден" onClick={() => onDateChange(addDaysISO(date, 1))}
+            className="flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-stone-200 bg-white p-3 text-ink hover:bg-stone-100 focus-visible:ring-2 focus-visible:ring-brand-600"><ChevronRight size={20} /></Button>
+          <Button onClick={() => onDateChange(todayISO())} className="min-h-11 rounded-xl border border-stone-200 bg-white px-4 text-sm font-bold text-ink hover:bg-stone-100 focus-visible:ring-2 focus-visible:ring-brand-600">Днес</Button>
         </div>
 
         <div className="grid gap-4 lg:grid-cols-2">
