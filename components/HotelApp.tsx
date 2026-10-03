@@ -20,6 +20,8 @@ import { hasFirebaseConfig } from "@/lib/firebase/client";
 import { getCurrentIdToken, listenAuth, loginWithEmail, logout } from "@/lib/firebase/auth";
 import { enablePersistentPushNotifications, type PushSetupState } from "@/lib/push";
 import { createBackup, createDailyBackupIfNeeded, listBackups, restoreBackup, type BackupListItem } from "@/lib/firebase/backups";
+import { getEnquiryAvailability } from "@/domain/enquiries/availability";
+import { EnquiryAvailabilityBadge } from "@/components/EnquiryAvailabilityBadge";
 import { EnquiryConversation } from "@/components/EnquiryConversation";
 import { EstiExportModal } from "@/components/esti/EstiExportModal";
 import type { User } from "firebase/auth";
@@ -829,7 +831,7 @@ export function HotelApp({
       )}
       {tab === "transactions" && !initialDataLoading && <TransactionsView data={data} month={month} setMonth={setMonth} addRow={addFinanceRow} updateRow={updateFinanceRow} removeRow={removeFinanceRow} />}
       {tab === "finance" && !initialDataLoading && <FinanceView data={data} unlocked={financeUnlocked} setUnlocked={setFinanceUnlocked} />}
-      {tab === "enquiries" && !initialDataLoading && <EnquiriesPreview onNewCountChange={setEnquiryNewCount} onCreateReservation={(enquiry) => openNewReservation(enquiry.propertyId, enquiry.checkin, "", {
+      {tab === "enquiries" && !initialDataLoading && <EnquiriesPreview reservations={reservations} onNewCountChange={setEnquiryNewCount} onCreateReservation={(enquiry) => openNewReservation(enquiry.propertyId, enquiry.checkin, "", {
         ...createReservationDraft(enquiry.propertyId, enquiry.checkin),
         rooms: enquiry.rooms,
         checkout: enquiry.checkout,
@@ -891,6 +893,7 @@ export function HotelApp({
 
 
 type PreviewEnquiry = {
+  requestedRooms: string[];
   unreadCount?: number;
   id: string;
   propertyId: PropertyId;
@@ -939,6 +942,7 @@ function mapApiEnquiry(item: ApiEnquiry): PreviewEnquiry {
     propertyId,
     propertyLabel: propertyId === "house" ? "Къща Лидия" : "Вила Лидия",
     rooms: wholeProperty ? ["all"] : [],
+    requestedRooms: item.rooms,
     checkin: item.checkin,
     checkout: item.checkout,
     adults: item.adults,
@@ -979,10 +983,48 @@ function notifyNewEnquiry(enquiry: PreviewEnquiry) {
 }
 
 
-function EnquiriesPreview({ onCreateReservation, onNewCountChange }: { onCreateReservation: (enquiry: PreviewEnquiry) => void; onNewCountChange?: (count: number) => void }) {
+function EnquiriesPreview({ reservations, onCreateReservation, onNewCountChange }: { reservations: Reservation[]; onCreateReservation: (enquiry: PreviewEnquiry) => void; onNewCountChange?: (count: number) => void }) {
   const [enquiries, setEnquiries] = useState<PreviewEnquiry[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [filter, setFilter] = useState<"all" | "new">("all");
+  const [calendar, setCalendar] = useState<{ reservations: Reservation[]; ready: boolean }>({ reservations: [], ready: false });
+  useEffect(() => {
+    let cancelled = false;
+    let inFlight = false;
+    async function refreshCalendar() {
+      if (!navigator.onLine) {
+        setCalendar(current => ({ ...current, ready: false }));
+        return;
+      }
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const loaded = await loadHotelData();
+        if (!cancelled) setCalendar({ reservations: Object.values(loaded.data.reservations), ready: loaded.source === "cloud" });
+      } catch {
+        if (!cancelled) setCalendar(current => ({ ...current, ready: false }));
+      } finally { inFlight = false; }
+    }
+    setCalendar(current => ({ ...current, ready: false }));
+    void refreshCalendar();
+    const interval = window.setInterval(() => { if (!document.hidden) void refreshCalendar(); }, 30000);
+    const onFocus = () => { if (!document.hidden) { setCalendar(current => ({ ...current, ready: false })); void refreshCalendar(); } };
+    const onOffline = () => setCalendar(current => ({ ...current, ready: false }));
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("online", onFocus);
+    window.addEventListener("offline", onOffline);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("online", onFocus);
+      window.removeEventListener("offline", onOffline);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, [reservations, selectedId]);
+  const availabilityFor = (item: PreviewEnquiry) => getEnquiryAvailability(item, calendar.reservations, calendar.ready);
+
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const seenIdsRef = useRef<Set<string> | null>(null);
@@ -1144,6 +1186,7 @@ function EnquiriesPreview({ onCreateReservation, onNewCountChange }: { onCreateR
                         <span>{formatShortDate(item.checkin)} → {formatShortDate(item.checkout)}</span>
                         <span>{item.adults + item.children} гости</span>
                       </div>
+                      <EnquiryAvailabilityBadge availability={availabilityFor(item)} />
                     </button>
 
                     <div className="flex shrink-0 flex-col items-end gap-2">
@@ -1191,6 +1234,7 @@ function EnquiriesPreview({ onCreateReservation, onNewCountChange }: { onCreateR
               <InfoTile label="Източник" value="vilalidia.bg" />
             </div>
 
+            <div className="mt-4"><EnquiryAvailabilityBadge availability={availabilityFor(selected)} expanded /></div>
             <div className="mt-5 grid gap-3 md:grid-cols-2">
               <a href={`tel:${selected.phone.replace(/\s/g, "")}`} className="rounded-2xl border border-stone-200 bg-white p-4 transition hover:border-brand-200">
                 <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wide text-stone-500"><Phone size={15} /> Телефон</div>
