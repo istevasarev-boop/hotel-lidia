@@ -17,6 +17,7 @@ export type Reservation = {
   checkout: string;
   guestName: string;
   phone: string;
+  source?: string;
   notes: string;
   depositAmount: number;
   totalAmount: number;

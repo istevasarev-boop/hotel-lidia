@@ -3620,7 +3620,7 @@ function ReservationModal({ draft, reservations, setDraft, closeHref, onClose, o
 
   function clearReservationForm() {
     debugClick("clear reservation form");
-    setDraft({ ...draft, guestName: "", phone: "", notes: "", depositAmount: 0, totalAmount: 0 });
+    setDraft({ ...draft, guestName: "", phone: "", notes: "", source: "", depositAmount: 0, totalAmount: 0 });
   }
 
   function changeReservationProperty(nextPropertyId: PropertyId) {
@@ -3698,6 +3698,23 @@ function ReservationModal({ draft, reservations, setDraft, closeHref, onClose, o
           </div>
         </FormSection>
         {guestMemory && <GuestMemoryCard summary={guestMemory} onOpenProfile={() => onGuestMemory(draft)} />}
+        <FormSection title="Източник на резервацията">
+          <label className="block font-bold">Откъде е резервацията?
+            <select
+              className="tap-target mt-1 w-full rounded-2xl border border-stone-200 bg-white px-3 outline-none focus:ring-2 focus:ring-brand-100"
+              value={draft.source || ""}
+              onChange={(event) => setDraft({ ...draft, source: event.target.value })}
+            >
+              <option value="">Не е посочен</option>
+              {["Booking", "Airbnb", "Вили Под Наем", "Grabo"].map((source) => (
+                <option key={source} value={source}>{source}</option>
+              ))}
+              {draft.source && !["Booking", "Airbnb", "Вили Под Наем", "Grabo"].includes(draft.source) && (
+                <option value={draft.source}>{draft.source}</option>
+              )}
+            </select>
+          </label>
+        </FormSection>
         <FormSection title="Плащане">
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="font-bold">Капаро (€)
