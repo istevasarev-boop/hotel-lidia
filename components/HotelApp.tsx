@@ -2957,8 +2957,8 @@ function DayDetailPanel({
         <div className="mb-4 flex flex-wrap items-center gap-2" role="group" aria-label="Смяна на деня">
           <Button aria-label="Предишен ден" onClick={() => onDateChange(addDaysISO(date, -1))}
             className="flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-stone-200 bg-white p-3 text-ink hover:bg-stone-100 focus-visible:ring-2 focus-visible:ring-brand-600"><ChevronLeft size={20} /></Button>
-          <input type="date" aria-label="Избери дата" value={date} onChange={(event) => {
-            const value = event.target.value;
+          <input type="date" aria-label="Избери дата" value={date} onInput={(event) => {
+            const value = event.currentTarget.value;
             if (/^\d{4}-\d{2}-\d{2}$/.test(value) && value >= "0001-01-01") onDateChange(value);
           }} className="min-h-11 min-w-0 flex-1 rounded-xl border border-stone-200 bg-white px-3 text-base font-bold text-ink focus-visible:ring-2 focus-visible:ring-brand-600 sm:flex-none" />
           <Button aria-label="Следващ ден" onClick={() => onDateChange(addDaysISO(date, 1))}
