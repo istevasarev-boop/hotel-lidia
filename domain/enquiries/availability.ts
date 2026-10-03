@@ -28,7 +28,7 @@ export function getEnquiryAvailability(request: AvailabilityRequest, reservation
   const requested = request.requestedRooms[0];
   const candidates = property.rooms.filter(room => requested === "jacuzzi" ? JACUZZI_ROOMS.has(room) : requested === "no_jacuzzi" ? !JACUZZI_ROOMS.has(room) : requested === room);
   if (!candidates.length) return result("check", "Типът настаняване не е разпознат. Проверете стаите в календара.");
-  const freeRooms = candidates.filter(room => !overlapping.some(item => item.rooms.includes("all") || item.rooms.includes(room)));
+  const freeRooms = candidates.filter(room => !overlapping.some(item => item.rooms.includes("all") || item.rooms.some(occupiedRoom => occupiedRoom === room)));
   if (!freeRooms.length) return result("occupied", "Няма стая от избрания тип, свободна за целия престой без преместване.");
   // The calendar has no verified bed capacities or requested room count. Never infer them from guest totals.
   return result("check", `Свободни по календар стаи: ${freeRooms.join(", ")}. Потвърдете броя стаи и капацитета за ${request.adults + request.children} гости.`, freeRooms);
