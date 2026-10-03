@@ -851,7 +851,9 @@ export function HotelApp({
       )}
       {tab === "transactions" && !initialDataLoading && <TransactionsView data={data} month={month} setMonth={setMonth} addRow={addFinanceRow} updateRow={updateFinanceRow} removeRow={removeFinanceRow} />}
       {tab === "finance" && !initialDataLoading && <FinanceView data={data} unlocked={financeUnlocked} setUnlocked={setFinanceUnlocked} />}
-      {tab === "enquiries" && !initialDataLoading && <EnquiriesPreview reservations={reservations} onNewCountChange={setEnquiryNewCount} onCreateReservation={(enquiry) => openNewReservation(enquiry.propertyId, enquiry.checkin, "", {
+      {tab === "enquiries" && !initialDataLoading && <EnquiriesPreview reservations={reservations} onNewCountChange={setEnquiryNewCount} onCreateReservation={(enquiry, latestReservations) => {
+        setData(current => ({ ...current, reservations: Object.fromEntries(latestReservations.map(item => [item.id, item])) }));
+        openNewReservation(enquiry.propertyId, enquiry.checkin, "", {
         ...createReservationDraft(enquiry.propertyId, enquiry.checkin),
         rooms: enquiry.rooms,
         enquiryContext: enquiry,
@@ -866,8 +868,8 @@ export function HotelApp({
           `Гости: ${enquiry.adults} възрастни${enquiry.children ? `, ${enquiry.children} деца` : ""}`,
           `Интерес: ${enquiry.interest}`,
           enquiry.notes ? `Бележка: ${enquiry.notes}` : ""
-        ].filter(Boolean).join(" · ")
-      })} />}
+         ].filter(Boolean).join(" · ")
+      }); }} />}
 
       <nav className="mobile-bottom-nav fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 gap-1 border-t border-stone-200 bg-cream/95 p-1.5 shadow-2xl backdrop-blur md:hidden">
         <TabButton active={tab === "upcoming"} href={`/?tab=upcoming&property=${activeProperty}`} icon={<Home size={19} />} label="Предстоящи" onClick={() => setTab("upcoming")} compact />
@@ -1006,7 +1008,7 @@ function notifyNewEnquiry(enquiry: PreviewEnquiry) {
 }
 
 
-function EnquiriesPreview({ reservations, onCreateReservation, onNewCountChange }: { reservations: Reservation[]; onCreateReservation: (enquiry: PreviewEnquiry) => void; onNewCountChange?: (count: number) => void }) {
+function EnquiriesPreview({ reservations, onCreateReservation, onNewCountChange }: { reservations: Reservation[]; onCreateReservation: (enquiry: PreviewEnquiry, latestReservations: Reservation[]) => void; onNewCountChange?: (count: number) => void }) {
   const [enquiries, setEnquiries] = useState<PreviewEnquiry[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [filter, setFilter] = useState<"all" | "new">("all");
@@ -1248,7 +1250,7 @@ function EnquiriesPreview({ reservations, onCreateReservation, onNewCountChange 
                 type="button"
                 className="tap-target rounded-xl bg-brand-600 px-4 py-3 font-black text-white shadow-sm hover:bg-brand-700 disabled:bg-stone-200 disabled:text-stone-600"
                 disabled={!canCreate}
-                onClick={() => { if (canCreate) onCreateReservation(selected); }}
+                onClick={() => { if (canCreate) onCreateReservation(selected, calendar.reservations); }}
               >
                 <Plus size={18} className="mr-2 inline" /> {alreadyCreated ? "Вече е създадена" : "Създай резервация"}
               </button>
