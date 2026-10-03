@@ -1506,6 +1506,22 @@ function UpcomingView({
   const tomorrow = addDaysISO(today, 1);
   const weekDates = useMemo(() => getCurrentWeekDays(today), [today]);
   const [weatherByDate, setWeatherByDate] = useState<Record<string, DailyWeather>>({});
+  const [calendarMode, setCalendarMode] = useState<"month" | "week">("month");
+  const [weekAnchor, setWeekAnchor] = useState(initialSelectedDate || (monthKey(todayISO()) === month ? todayISO() : `${month}-01`));
+  const lastCalendarDate = useRef(initialSelectedDate);
+  const weekStart = addDaysISO(weekAnchor, -((parseISODate(weekAnchor).getDay() + 6) % 7));
+  const weekEnd = addDaysISO(weekStart, 6);
+
+  useEffect(() => {
+    setWeekAnchor(monthKey(todayISO()) === month ? todayISO() : `${month}-01`);
+    lastCalendarDate.current = undefined;
+  }, [month]);
+
+  function showWeek() {
+    setWeekAnchor(selectedDate || lastCalendarDate.current || (monthKey(todayISO()) === month ? todayISO() : `${month}-01`));
+    setCalendarMode("week");
+  }
+
   const activeReservations = reservations.filter((reservation) => reservation.status !== "cancelled");
   const todayArrivals = sortOperationalReservations(activeReservations.filter((reservation) => reservation.checkin === today));
   const tomorrowArrivals = sortOperationalReservations(activeReservations.filter((reservation) => reservation.checkin === tomorrow));
@@ -2597,7 +2613,7 @@ function BackupTools({ backups, status, onCreateBackup, onRestoreBackup }: { bac
   );
 }
 
-function CalendarView({
+export function CalendarView({
   month,
   setMonth,
   propertyId,
@@ -2658,8 +2674,8 @@ function CalendarView({
 
   useEffect(() => {
     let cancelled = false;
-    const calendarStart = `${month}-01`;
-    const calendarEnd = `${month}-${String(days).padStart(2, "0")}`;
+    const calendarStart = calendarMode === "week" ? weekStart : `${month}-01`;
+    const calendarEnd = calendarMode === "week" ? weekEnd : `${month}-${String(days).padStart(2, "0")}`;
     fetchCalendarWeather(calendarStart, calendarEnd)
       .then((forecast) => {
         if (!cancelled) setWeatherByDate(forecast);
@@ -2671,7 +2687,7 @@ function CalendarView({
     return () => {
       cancelled = true;
     };
-  }, [days, month]);
+  }, [days, month, calendarMode, weekStart, weekEnd]);
 
   function changeCalendarMonth(delta: number) {
     const nextMonth = shiftMonthKey(month, delta);
@@ -2692,7 +2708,8 @@ function CalendarView({
     const deltaY = touch.clientY - start.y;
     if (Math.abs(deltaX) < 70 || Math.abs(deltaX) < Math.abs(deltaY) * 1.4) return;
 
-    changeCalendarMonth(deltaX < 0 ? 1 : -1);
+    if (calendarMode === "week") setWeekAnchor(addDaysISO(weekAnchor, deltaX < 0 ? 7 : -7));
+    else changeCalendarMonth(deltaX < 0 ? 1 : -1);
   }
 
   return (
@@ -2723,6 +2740,23 @@ function CalendarView({
         </div>
       </div>
 
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div role="group" aria-label="Изглед на календара" className="inline-flex rounded-xl border border-stone-200 bg-white p-1">
+          {(["month", "week"] as const).map((mode) => (
+            <Button key={mode} aria-pressed={calendarMode === mode} onClick={() => mode === "week" ? showWeek() : setCalendarMode("month")}
+              className={`min-h-11 rounded-lg px-5 text-sm font-bold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 ${calendarMode === mode ? "bg-brand-600 text-white" : "text-ink hover:bg-stone-100"}`}>
+              {mode === "month" ? "Месец" : "Седмица"}
+            </Button>
+          ))}
+        </div>
+        {calendarMode === "week" && <div className="flex flex-wrap items-center gap-2">
+          <Button aria-label="Предишна седмица" onClick={() => setWeekAnchor(addDaysISO(weekAnchor, -7))} className="min-h-11 min-w-11 rounded-xl border border-stone-200 bg-white p-3 hover:bg-stone-100 focus-visible:ring-2 focus-visible:ring-brand-600"><ChevronLeft size={18} /></Button>
+          <span aria-live="polite" className="text-sm font-bold text-ink">{formatBulgarianDateRange(weekStart, weekEnd)}</span>
+          <Button aria-label="Следваща седмица" onClick={() => setWeekAnchor(addDaysISO(weekAnchor, 7))} className="min-h-11 min-w-11 rounded-xl border border-stone-200 bg-white p-3 hover:bg-stone-100 focus-visible:ring-2 focus-visible:ring-brand-600"><ChevronRight size={18} /></Button>
+          <Button onClick={() => setWeekAnchor(todayISO())} className="min-h-11 rounded-xl border border-stone-200 bg-white px-4 text-sm font-bold hover:bg-stone-100 focus-visible:ring-2 focus-visible:ring-brand-600">Днес</Button>
+        </div>}
+      </div>
+
       <HolidayInfoBar holiday={carouselHolidayInfo} index={holidayIdeas.length ? holidayIdeaIndex + 1 : undefined} total={holidayIdeas.length || undefined} />
 
       {freeRoomsPickActive && (
@@ -2731,6 +2765,22 @@ function CalendarView({
         </div>
       )}
 
+      {calendarMode === "week" ? (
+        <CalendarWeekCards reservations={reservations} weekStart={weekStart} weatherByDate={weatherByDate}
+          onDay={(iso) => {
+            lastCalendarDate.current = iso;
+            setSelectedDate(iso);
+            if (freeRoomsPickActive) onFreeRoomsDateSelected?.(iso);
+          }}
+          onRoom={(iso, nextPropertyId, room, reservation) => {
+            lastCalendarDate.current = iso;
+            if (freeRoomsPickActive) {
+              setSelectedDate(iso);
+              onFreeRoomsDateSelected?.(iso);
+            } else if (reservation) onEdit(reservation);
+            else onNew(nextPropertyId, iso, room);
+          }} />
+      ) : (<>
       <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-black text-slate-500 sm:text-xs">
         {["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"].map((dayName) => <div key={dayName}>{dayName}</div>)}
       </div>
@@ -2767,6 +2817,7 @@ function CalendarView({
               }}
               onClick={(event) => {
                 event.preventDefault();
+                lastCalendarDate.current = iso;
                 debugClick("calendar open day detail");
                 window.history.replaceState(null, "", `/?tab=calendar&property=${propertyId}&month=${month}&day=${iso}`);
                 setSelectedDate(iso);
@@ -2797,6 +2848,7 @@ function CalendarView({
           );
         })}
       </div>
+      </>)}
 
       {selectedDate && (
         <DayDetailPanel
@@ -2815,6 +2867,52 @@ function CalendarView({
       )}
     </section>
   );
+}
+
+function CalendarWeekCards({ reservations, weekStart, weatherByDate, onDay, onRoom }: {
+  reservations: Reservation[];
+  weekStart: string;
+  weatherByDate: Record<string, DailyWeather>;
+  onDay: (date: string) => void;
+  onRoom: (date: string, property: PropertyId, room: RoomId, reservation?: Reservation) => void;
+}) {
+  const active = reservations.filter((reservation) => reservation.status !== "cancelled");
+  return <div data-calendar-grid className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    {Array.from({ length: 7 }, (_, index) => {
+      const iso = addDaysISO(weekStart, index);
+      const date = parseISODate(iso);
+      const occupancy = getCombinedDayOccupancy(active, iso);
+      const tone = getOccupancyTone(occupancy.occupied, occupancy.total);
+      const holiday = getBulgarianHolidayInfo(iso);
+      return <article key={iso} aria-label={formatBulgarianDateRange(iso, iso)} className={`min-w-0 rounded-2xl border p-4 ${tone.className} ${iso === todayISO() ? "ring-2 ring-brand-600 ring-offset-2" : ""}`}>
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <Button onClick={() => onDay(iso)} aria-label={`Отвори ${formatBulgarianDateRange(iso, iso)}`} className="flex min-h-11 items-center gap-2 rounded-lg text-left text-ink hover:bg-white/60 focus-visible:ring-2 focus-visible:ring-brand-600">
+            <span className="text-2xl font-black">{date.getDate()}</span><span className="text-sm font-bold">{BG_WEEKDAYS_LONG[date.getDay()]}</span>
+          </Button>
+          <CalendarWeatherHint weather={weatherByDate[iso]} />
+        </div>
+        {holiday && <p className="mb-2 text-xs font-bold text-sky-900">{holiday.holidayName}</p>}
+        {PROPERTIES.map((property, propertyIndex) => {
+          const states = getRoomAvailabilityStates(active, iso, property.id);
+          return <div key={property.id} className={propertyIndex ? "mt-4 border-t border-black/10 pt-3" : ""}>
+            <h3 className="mb-2 text-sm font-bold text-ink">{property.id === "villa" ? "Вила" : "Къща"}</h3>
+            <div className="grid grid-cols-4 gap-2">
+              {property.rooms.map((room) => {
+                const state = states[room];
+                const reservation = active.find((item) => item.propertyId === property.id && activeOnDate(item.checkin, item.checkout, iso) && (item.rooms.includes("all") || item.rooms.map(String).includes(room)));
+                const color = state === "free" ? "bg-slate-600" : state === "deposit-paid" ? "bg-emerald-700" : "bg-rose-700";
+                return <Button key={room} aria-label={`${property.name}, стая ${room}, ${roomAvailabilityLabel(state)}`} title={`${property.name} · стая ${room} · ${roomAvailabilityLabel(state)}`}
+                  onClick={() => onRoom(iso, property.id, room, reservation)}
+                  className={`min-h-12 min-w-0 rounded-lg text-lg font-bold text-white transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 ${color}`}>
+                  {room}
+                </Button>;
+              })}
+            </div>
+          </div>;
+        })}
+      </article>;
+    })}
+  </div>;
 }
 
 function DayDetailPanel({
@@ -5799,6 +5897,7 @@ function occupiedSummary(reservations: Reservation[]): string {
   }).filter(Boolean);
   return [...whole.map((name) => `${name}: ${WHOLE_PROPERTY_LABEL}`), ...roomsByProperty].join(" · ");
 }
+
 
 
 
