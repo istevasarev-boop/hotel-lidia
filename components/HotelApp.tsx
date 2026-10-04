@@ -2787,7 +2787,7 @@ export function CalendarView({
       </div>
 
       <div className="mt-1 grid grid-cols-7 gap-1 sm:gap-2" data-calendar-grid>
-        {Array.from({ length: firstOffset }).map((_, index) => <div className="h-[98px] rounded-xl bg-stone-50/50 sm:h-[128px]" key={`empty-${index}`} />)}
+        {Array.from({ length: firstOffset }).map((_, index) => <div className="h-[98px] rounded-2xl bg-stone-50/70 sm:h-[128px]" key={`empty-${index}`} />)}
         {Array.from({ length: days }).map((_, index) => {
           const day = index + 1;
           const iso = `${month}-${String(day).padStart(2, "0")}`;
@@ -2796,7 +2796,10 @@ export function CalendarView({
           const weekday = BG_WEEKDAYS_LONG[weekdayIndex];
           const holiday = getBulgarianHolidayInfo(iso);
           const occupancy = getCombinedDayOccupancy(visibleReservations, iso);
+          const propertyOccupancies = getPropertyDayOccupancies(visibleReservations, iso);
+          const bothPropertiesFree = propertyOccupancies.every((item) => item.occupied === 0);
           const tone = getOccupancyTone(occupancy.occupied, occupancy.total);
+          const isWeekend = weekdayIndex === 5 || weekdayIndex === 6;
           const isSelected = selectedDate === iso;
           const isToday = today === iso;
           const weather = weatherByDate[iso];
@@ -2805,9 +2808,7 @@ export function CalendarView({
             <a
               key={iso}
               href={`/?tab=calendar&property=${propertyId}&month=${month}&day=${iso}`}
-              aria-label={`${weekday}, ${day} ${formatMonthLabel(month)}${isToday ? ", днес" : ""}`}
-              aria-current={isToday ? "date" : undefined}
-              className={`tap-target relative grid h-[98px] min-w-0 grid-rows-[20px_minmax(0,1fr)_40px] overflow-hidden rounded-xl border px-0.5 pb-1 pt-1 text-left transition-colors hover:border-brand-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 sm:h-[128px] sm:grid-rows-[24px_minmax(0,1fr)_56px] sm:px-2 sm:pb-2 sm:pt-2 ${tone.status === "free" ? "border-emerald-100 bg-[#F0FAF5]" : tone.status === "full" ? "border-rose-100 bg-[#FDEFF0]" : "border-amber-100 bg-[#FFF9EB]"} ${isSelected ? "!border-brand-600" : ""}`}
+              className={`tap-target relative grid h-[98px] min-w-0 grid-rows-[14px_minmax(0,1fr)_30px] overflow-hidden rounded-2xl border px-1.5 pb-1 pt-1.5 text-center shadow-sm transition hover:-translate-y-0.5 hover:shadow sm:h-[128px] sm:grid-rows-[16px_minmax(0,1fr)_36px] sm:px-2 sm:pb-1.5 sm:pt-2 ${tone.className} ${isWeekend ? "ring-1 ring-amber-200/70" : ""} ${holiday ? "outline outline-1 outline-sky-200" : ""} ${isToday ? "ring-2 ring-brand-500 ring-offset-1 ring-offset-white shadow-md" : ""} ${isSelected ? "ring-2 ring-brand-600" : ""}`}
               title={getHolidayTooltipText(holiday)}
               onMouseEnter={() => {
                 if (holiday) setOpenHolidayDate(iso);
@@ -2825,14 +2826,23 @@ export function CalendarView({
                 if (holiday) setOpenHolidayDate(iso);
               }}
             >
-              <div className="flex min-w-0 items-center justify-between gap-0.5">
-                <span className="text-base font-extrabold leading-none text-ink sm:text-xl">{day}</span>
-                <span className="hidden min-w-0 sm:block"><CalendarWeatherHint weather={weather} /></span>
+              {bothPropertiesFree && (
+                <span className={`pointer-events-none absolute right-1 z-10 h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_0_2px_rgba(16,185,129,0.14)] sm:right-1.5 sm:top-1.5 ${isToday ? "top-5 sm:top-6" : "top-1"}`} aria-label="И двата обекта са свободни" />
+              )}
+              <div className="flex min-w-0 items-start justify-between gap-0.5 overflow-hidden">
+                <CalendarWeatherHint weather={weather} />
+                {isToday && (
+                  <span className="pointer-events-none inline-flex h-3.5 shrink-0 items-center rounded-full bg-brand-600 px-1 text-[7px] font-black leading-none text-white shadow-sm sm:h-4 sm:px-1.5 sm:text-[9px]">
+                    Днес
+                  </span>
+                )}
               </div>
-              <div className="flex min-w-0 items-center gap-1 overflow-hidden">
-                {isToday && <span className="shrink-0 rounded-full bg-brand-600 px-1 py-0.5 text-[7px] font-bold leading-none text-white sm:px-2 sm:text-[9px]">Днес</span>}
-                {holiday && <span className="truncate text-[7px] font-bold text-sky-900 sm:text-[9px]" title={holiday.holidayName}>{holiday.holidayName}</span>}
-                {!isToday && !holiday && <span className="sm:hidden"><CalendarWeatherHint weather={weather} /></span>}
+              <div className="flex min-w-0 flex-col items-center justify-start px-0.5 pt-0.5">
+                <span className="block w-full truncate text-[9px] font-bold leading-none text-ink sm:text-[11px]">{weekday}</span>
+                <span className="mt-1 block text-[18px] font-black leading-none text-ink sm:text-[26px]">{day}</span>
+                <span className={`mt-0.5 block h-3 w-full truncate text-[8px] font-bold leading-3 text-sky-900 sm:h-4 sm:text-[10px] ${holiday ? "" : "opacity-0"}`}>
+                  {holiday?.holidayName || "."}
+                </span>
               </div>
               <RoomAvailabilitySegments reservations={visibleReservations} date={iso} />
             </a>
@@ -4810,26 +4820,26 @@ type RoomAvailabilityState = "free" | "deposit-paid" | "no-deposit";
 
 function RoomAvailabilitySegments({ reservations, date }: { reservations: Reservation[]; date: string }) {
   return (
-    <div className="grid w-full gap-1" aria-label="Състояние на стаите за деня">
+    <div className="grid w-full self-start gap-0.5" aria-label="Състояние на стаите за деня">
       {PROPERTIES.map((property) => {
         const states = getRoomAvailabilityStates(reservations, date, property.id);
         return (
-          <div key={property.id} className="flex min-w-0 items-center gap-1">
-            <span className="hidden w-2 shrink-0 text-[9px] font-bold text-slate-700 sm:block" title={property.name} aria-hidden="true">
-              {property.id === "villa" ? "В" : "К"}
+          <div key={property.id} className="relative grid gap-[0.5px]" style={{ gridTemplateColumns: `repeat(${property.rooms.length}, minmax(0, 1fr))` }}>
+            <span className="pointer-events-none absolute -left-1.5 top-1/2 -translate-y-1/2 text-[7px] leading-none opacity-55 sm:-left-2 sm:text-[9px]" aria-hidden="true">
+              {property.id === "villa" ? "🌲" : "🏡"}
             </span>
-            <div className="grid min-w-0 flex-1 gap-px sm:gap-0.5" style={{ gridTemplateColumns: `repeat(${property.rooms.length}, minmax(0, 1fr))` }}>
-              {property.rooms.map((room) => {
-                const state = states[room];
-                const color = state === "free" ? "bg-slate-500" : state === "deposit-paid" ? "bg-emerald-700" : "bg-rose-700";
-                return (
-                  <span key={room} title={`${property.name} · стая ${room} · ${roomAvailabilityLabel(state)}`}
-                    className={`flex h-[18px] min-w-0 items-center justify-center rounded-[3px] font-bold leading-none text-white ${room.length > 1 ? "text-[5px] sm:text-[8px]" : "text-[6px] sm:text-[9px]"} sm:h-[26px] sm:rounded ${color}`}>
-                    {room}
-                  </span>
-                );
-              })}
-            </div>
+            {property.rooms.map((room) => {
+              const state = states[room];
+              return (
+                <span
+                  key={room}
+                  title={`${property.name} · стая ${room} · ${roomAvailabilityLabel(state)}`}
+                  className={`flex h-3.5 min-w-0 items-center justify-center rounded-[2px] font-black leading-none text-white ${room.length > 1 ? "text-[5px] sm:text-[7px]" : "text-[6px] sm:text-[9px]"} sm:h-4 ${getRoomAvailabilityClass(state)}`}
+                >
+                  {room}
+                </span>
+              );
+            })}
           </div>
         );
       })}
