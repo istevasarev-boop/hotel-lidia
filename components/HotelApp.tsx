@@ -24,6 +24,7 @@ import { getEnquiryAvailability, type AvailabilityRequest } from "@/domain/enqui
 import { EnquiryAvailabilityBadge } from "@/components/EnquiryAvailabilityBadge";
 import { EnquiryConversation } from "@/components/EnquiryConversation";
 import { EstiExportModal } from "@/components/esti/EstiExportModal";
+import { MarketingView } from "@/components/MarketingView";
 import type { User } from "firebase/auth";
 
 type Tab = "upcoming" | "calendar" | "transactions" | "finance" | "enquiries";
@@ -3473,6 +3474,7 @@ function TransactionsView({ data, month, setMonth, addRow, updateRow, removeRow 
 }
 
 function FinanceView({ data, unlocked, setUnlocked }: { data: AppData; unlocked: boolean; setUnlocked: (value: boolean) => void }) {
+  const [section, setSection] = useState<"overview" | "marketing">("overview");
   const [selectedMonth, setSelectedMonth] = useState(monthKey(todayISO()));
   const [showSummary, setShowSummary] = useState(false);
   const [confirmUnlock, setConfirmUnlock] = useState(false);
@@ -3512,6 +3514,13 @@ function FinanceView({ data, unlocked, setUnlocked }: { data: AppData; unlocked:
 
   return (
     <section className="soft-card relative rounded-3xl p-4">
+      <div className="mb-5 flex flex-wrap gap-2 border-b border-stone-200 pb-4" role="tablist" aria-label="Раздели във Финанси">
+        {([['overview', 'Финансов преглед'], ['marketing', 'Маркетинг']] as const).map(([id, label]) => <button key={id} type="button" id={`finance-${id}-tab`} role="tab" aria-selected={section === id} aria-controls={`finance-${id}-panel`} onClick={() => setSection(id)} className={`min-h-11 rounded-xl px-4 py-2 text-sm font-bold ${section === id ? 'bg-pine text-white' : 'bg-white text-clay'}`}>{label}</button>)}
+      </div>
+      <div id="finance-marketing-panel" role="tabpanel" aria-labelledby="finance-marketing-tab" hidden={section !== "marketing"}>
+        {section === "marketing" && (unlocked ? <MarketingView /> : <div className="rounded-2xl bg-white p-5"><p className="text-clay">Отключи финансовия преглед с „Покажи“, за да видиш маркетинговите данни.</p><button type="button" onClick={() => setSection("overview")} className="mt-4 min-h-11 rounded-xl bg-pine px-4 text-white">Към финансовия преглед</button></div>)}
+      </div>
+      <div id="finance-overview-panel" role="tabpanel" aria-labelledby="finance-overview-tab" hidden={section !== "overview"}>
       <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="inline-flex items-center gap-2 text-2xl font-black text-ink">
           <LockKeyhole aria-hidden="true" className={`h-5 w-5 ${unlocked ? "text-emerald-700" : "text-clay"}`} />
@@ -3545,6 +3554,7 @@ function FinanceView({ data, unlocked, setUnlocked }: { data: AppData; unlocked:
         {showSummary && <FinanceSummaryTable data={data} selectedMonth={selectedMonth} revealed={unlocked} />}
       </div>
       {confirmUnlock && <FinancePrivacyPrompt onCancel={() => setConfirmUnlock(false)} onReveal={revealFinanceValues} />}
+      </div>
     </section>
   );
 }
