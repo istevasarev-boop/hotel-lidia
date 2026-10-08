@@ -3474,7 +3474,7 @@ function TransactionsView({ data, month, setMonth, addRow, updateRow, removeRow 
 }
 
 function FinanceView({ data, unlocked, setUnlocked }: { data: AppData; unlocked: boolean; setUnlocked: (value: boolean) => void }) {
-  const [section, setSection] = useState<"overview" | "marketing">("overview");
+  const [section, setSection] = useState<"overview" | "marketing" | "website">("overview");
   const [selectedMonth, setSelectedMonth] = useState(monthKey(todayISO()));
   const [showSummary, setShowSummary] = useState(false);
   const [confirmUnlock, setConfirmUnlock] = useState(false);
@@ -3514,11 +3514,11 @@ function FinanceView({ data, unlocked, setUnlocked }: { data: AppData; unlocked:
 
   return (
     <section className="soft-card relative rounded-3xl p-4">
-      <div className="mb-5 flex flex-wrap gap-2 border-b border-stone-200 pb-4" role="tablist" aria-label="Раздели във Финанси">
-        {([['overview', 'Финансов преглед'], ['marketing', 'Маркетинг']] as const).map(([id, label]) => <button key={id} type="button" id={`finance-${id}-tab`} role="tab" aria-selected={section === id} aria-controls={`finance-${id}-panel`} onClick={() => setSection(id)} className={`min-h-11 rounded-xl px-4 py-2 text-sm font-bold ${section === id ? 'bg-pine text-white' : 'bg-white text-clay'}`}>{label}</button>)}
+      <div className="mb-5 grid grid-cols-3 gap-1 border-b border-stone-200 pb-4 sm:gap-2" role="tablist" aria-label="Раздели във Финанси">
+        {([['overview', 'Финанси'], ['marketing', 'Маркетинг'], ['website', 'Сайт и аудитории']] as const).map(([id, label]) => <button key={id} type="button" id={`finance-${id}-tab`} role="tab" aria-selected={section === id} aria-controls={id === "overview" ? "finance-overview-panel" : "finance-report-panel"} onClick={() => setSection(id)} className={`min-h-11 min-w-0 rounded-xl px-2 py-2 text-sm font-bold sm:px-4 ${section === id ? 'bg-pine text-white' : 'bg-white text-clay'}`}>{label}</button>)}
       </div>
-      <div id="finance-marketing-panel" role="tabpanel" aria-labelledby="finance-marketing-tab" hidden={section !== "marketing"}>
-        {section === "marketing" && (unlocked ? <MarketingView /> : <div className="rounded-2xl bg-white p-5"><p className="text-clay">Отключи финансовия преглед с „Покажи“, за да видиш маркетинговите данни.</p><button type="button" onClick={() => setSection("overview")} className="mt-4 min-h-11 rounded-xl bg-pine px-4 text-white">Към финансовия преглед</button></div>)}
+      <div id="finance-report-panel" role="tabpanel" aria-labelledby={`finance-${section === "website" ? "website" : "marketing"}-tab`} hidden={section === "overview"}>
+        {section !== "overview" && (unlocked ? <MarketingView tab={section === "website" ? "website" : "campaigns"} /> : <div className="rounded-2xl bg-white p-5"><p className="text-clay">Отключи „Финанси“ с „Покажи“, за да видиш отчетите.</p><button type="button" onClick={() => setSection("overview")} className="mt-4 min-h-11 rounded-xl bg-pine px-4 text-white">Към Финанси</button></div>)}
       </div>
       <div id="finance-overview-panel" role="tabpanel" aria-labelledby="finance-overview-tab" hidden={section !== "overview"}>
       <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
