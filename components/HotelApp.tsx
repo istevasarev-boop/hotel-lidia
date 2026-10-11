@@ -3514,18 +3514,11 @@ function FinanceView({ data, unlocked, setUnlocked }: { data: AppData; unlocked:
 
   return (
     <section className="soft-card relative rounded-3xl p-4">
-      <div className="mb-5 grid grid-cols-3 gap-1 border-b border-stone-200 pb-4 sm:gap-2" role="tablist" aria-label="Раздели във Финанси">
-        {([['overview', 'Финанси'], ['marketing', 'Маркетинг'], ['website', 'Сайт и аудитории']] as const).map(([id, label]) => <button key={id} type="button" id={`finance-${id}-tab`} role="tab" aria-selected={section === id} aria-controls={id === "overview" ? "finance-overview-panel" : "finance-report-panel"} onClick={() => setSection(id)} className={`min-h-11 min-w-0 rounded-xl px-2 py-2 text-sm font-bold sm:px-4 ${section === id ? 'bg-pine text-white' : 'bg-white text-clay'}`}>{label}</button>)}
-      </div>
-      <div id="finance-report-panel" role="tabpanel" aria-labelledby={`finance-${section === "website" ? "website" : "marketing"}-tab`} hidden={section === "overview"}>
-        {section !== "overview" && (unlocked ? <MarketingView tab={section === "website" ? "website" : "campaigns"} /> : <div className="rounded-2xl bg-white p-5"><p className="text-clay">Отключи „Финанси“ с „Покажи“, за да видиш отчетите.</p><button type="button" onClick={() => setSection("overview")} className="mt-4 min-h-11 rounded-xl bg-pine px-4 text-white">Към Финанси</button></div>)}
-      </div>
-      <div id="finance-overview-panel" role="tabpanel" aria-labelledby="finance-overview-tab" hidden={section !== "overview"}>
       <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="inline-flex items-center gap-2 text-2xl font-black text-ink">
+        <h2><button type="button" onClick={() => setSection("overview")} aria-pressed={section === "overview"} className="inline-flex min-h-11 items-center gap-2 text-2xl font-black text-ink">
           <LockKeyhole aria-hidden="true" className={`h-5 w-5 ${unlocked ? "text-emerald-700" : "text-clay"}`} />
           Финанси
-        </h2>
+        </button></h2>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
           <label className="inline-flex min-h-11 flex-1 items-center gap-2 rounded-full border border-stone-200 bg-white/80 px-3 text-sm font-black text-clay shadow-sm sm:flex-none">
             <span className="sr-only">Месец</span>
@@ -3536,7 +3529,15 @@ function FinanceView({ data, unlocked, setUnlocked }: { data: AppData; unlocked:
             <span className="hidden min-[380px]:inline sm:inline">{unlocked ? "Скрий" : "Покажи"}</span>
           </Button>
         </div>
-      </div>      <div className={`transition duration-300 ${unlocked ? "opacity-100" : "opacity-85 blur-[0.6px]"}`}>
+      </div>
+      <div className="mb-3 grid grid-cols-2 gap-2" role="tablist" aria-label="Отчети във Финанси">
+        {([['marketing', 'Маркетинг'], ['website', 'Сайт и аудитории']] as const).map(([id, label]) => <button key={id} type="button" id={`finance-${id}-tab`} role="tab" aria-selected={section === id} aria-controls="finance-report-panel" onClick={() => setSection(section === id ? "overview" : id)} className={`min-h-11 min-w-0 rounded-xl px-2 py-2 text-sm font-bold sm:px-4 ${section === id ? 'bg-pine text-white' : 'bg-white text-clay'}`}>{label}</button>)}
+      </div>
+      <div id="finance-report-panel" role="tabpanel" aria-labelledby={`finance-${section === "website" ? "website" : "marketing"}-tab`} hidden={section === "overview"}>
+        {section !== "overview" && (unlocked ? <MarketingView tab={section === "website" ? "website" : "campaigns"} /> : <div className="rounded-2xl bg-white p-4"><p className="text-clay">Натисни „Покажи“ отгоре, за да отключиш отчетите.</p></div>)}
+      </div>
+      <div id="finance-overview-panel" hidden={section !== "overview"}>
+      <div className={`transition duration-300 ${unlocked ? "opacity-100" : "opacity-85 blur-[0.6px]"}`}>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
           <Kpi label="Общи Приходи" value={getFinanceRevenue(kpis)} revealed={unlocked} />
           <Kpi label="Разходи" value={kpis.expenses} danger revealed={unlocked} />
@@ -3553,8 +3554,8 @@ function FinanceView({ data, unlocked, setUnlocked }: { data: AppData; unlocked:
         </div>
         {showSummary && <FinanceSummaryTable data={data} selectedMonth={selectedMonth} revealed={unlocked} />}
       </div>
-      {confirmUnlock && <FinancePrivacyPrompt onCancel={() => setConfirmUnlock(false)} onReveal={revealFinanceValues} />}
       </div>
+      {confirmUnlock && <FinancePrivacyPrompt onCancel={() => setConfirmUnlock(false)} onReveal={revealFinanceValues} />}
     </section>
   );
 }
