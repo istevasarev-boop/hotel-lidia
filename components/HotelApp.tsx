@@ -21,6 +21,7 @@ import { getCurrentIdToken, listenAuth, loginWithEmail, logout } from "@/lib/fir
 import { enablePersistentPushNotifications, type PushSetupState } from "@/lib/push";
 import { createBackup, createDailyBackupIfNeeded, listBackups, restoreBackup, type BackupListItem } from "@/lib/firebase/backups";
 import { getEnquiryAvailability, type AvailabilityRequest } from "@/domain/enquiries/availability";
+import { convertedEnquiryIds, enquiryReceivedMonth, enquirySummary, isInternalEnquiry } from "@/domain/enquiries/reporting";
 import { EnquiryAvailabilityBadge } from "@/components/EnquiryAvailabilityBadge";
 import { EnquiryConversation } from "@/components/EnquiryConversation";
 import { EstiExportModal } from "@/components/esti/EstiExportModal";
@@ -850,7 +851,9 @@ export function HotelApp({
           />
         </div>
       )}
-      {tab === "transactions" && !initialDataLoading && <TransactionsView data={data} month={month} setMonth={setMonth} addRow={addFinanceRow} updateRow={updateFinanceRow} removeRow={removeFinanceRow} />}
+      {tab === "transactions" && !initialDataLoading && <TransactionsView data={data} month={month} setMonth={setMonth} createCategory={async (kind, name) => {
+        await persist({ ...data, financeCategories: { ...data.financeCategories, [kind]: [...(data.financeCategories?.[kind] || []), name] } });
+      }} addRow={addFinanceRow} updateRow={updateFinanceRow} removeRow={removeFinanceRow} />}
       {tab === "finance" && !initialDataLoading && <FinanceView data={data} unlocked={financeUnlocked} setUnlocked={setFinanceUnlocked} />}
       {tab === "enquiries" && !initialDataLoading && <EnquiriesPreview reservations={reservations} onNewCountChange={setEnquiryNewCount} onCreateReservation={(enquiry, latestReservations) => {
         setData(current => ({ ...current, reservations: Object.fromEntries(latestReservations.map(item => [item.id, item])) }));
@@ -1012,7 +1015,12 @@ function notifyNewEnquiry(enquiry: PreviewEnquiry) {
 function EnquiriesPreview({ reservations, onCreateReservation, onNewCountChange }: { reservations: Reservation[]; onCreateReservation: (enquiry: PreviewEnquiry, latestReservations: Reservation[]) => void; onNewCountChange?: (count: number) => void }) {
   const [enquiries, setEnquiries] = useState<PreviewEnquiry[]>([]);
   const [selectedId, setSelectedId] = useState("");
-  const [filter, setFilter] = useState<"all" | "new">("all");
+  const [filter, setFilter] = useState<"all" | "new" | "contacted" | "converted" | "dismissed">("all");
+  const [query, setQuery] = useState("");
+  const [receivedMonth, setReceivedMonth] = useState("all");
+  const [propertyFilter, setPropertyFilter] = useState("all");
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState("");
   const [calendar, setCalendar] = useState<{ reservations: Reservation[]; ready: boolean }>({ reservations: [], ready: false });
   useEffect(() => {
     let cancelled = false;
@@ -1065,10 +1073,11 @@ function EnquiriesPreview({ reservations, onCreateReservation, onNewCountChange 
       });
       if (!response.ok) throw new Error(`Enquiries load failed: ${response.status}`);
       const payload = await response.json() as { enquiries?: ApiEnquiry[] };
-      const next = (payload.enquiries || []).map(mapApiEnquiry);
+      const next = (payload.enquiries || []).filter(item => !isInternalEnquiry(item)).map(mapApiEnquiry);
+      setLastUpdated(new Date().toLocaleTimeString("bg-BG", { hour: "2-digit", minute: "2-digit" }));
       setEnquiries(next);
       onNewCountChange?.(next.filter((item) => item.status === "new").length);
-      const activeNext = next.filter((item) => item.status !== "dismissed");
+      const activeNext = next;
       setSelectedId((current) => current && activeNext.some((item) => item.id === current) ? current : activeNext[0]?.id || "");
       setLoadError("");
 
@@ -1127,13 +1136,14 @@ function EnquiriesPreview({ reservations, onCreateReservation, onNewCountChange 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const activeEnquiries = enquiries.filter((item) => item.status !== "dismissed");
-  const archivedEnquiries = enquiries.filter((item) => item.status === "dismissed");
-  const visible = activeEnquiries.filter((item) => filter === "all" || item.status === "new");
-  const selected = activeEnquiries.find((item) => item.id === selectedId) || visible[0] || activeEnquiries[0];
-  const newCount = activeEnquiries.filter((item) => item.status === "new").length;
+  const converted = convertedEnquiryIds(reservations);
+  const periodEnquiries = enquiries.filter(item => !isInternalEnquiry(item) && (receivedMonth === "all" || enquiryReceivedMonth(item.createdAt) === receivedMonth) && (propertyFilter === "all" || item.propertyId === propertyFilter));
+  const summary = enquirySummary(periodEnquiries, converted);
+  const visible = periodEnquiries.filter(item => (filter === "all" || (filter === "converted" ? converted.has(item.id) : item.status === filter && !converted.has(item.id))) && `${item.name} ${item.email} ${item.phone}`.toLocaleLowerCase("bg").includes(query.trim().toLocaleLowerCase("bg")));
+  const selected = visible.find(item => item.id === selectedId) || visible[0];
+  const newCount = summary.new;
   const selectedAvailability = selected ? availabilityFor(selected) : null;
-  const alreadyCreated = selected ? calendar.reservations.some(item => item.notes.includes(`[enquiry:${selected.id}]`)) : false;
+  const alreadyCreated = selected ? converted.has(selected.id) : false;
   const canCreate = calendar.ready && !alreadyCreated && selectedAvailability?.status !== "occupied" && !!selectedAvailability?.freeRooms.length;
 
   return (
@@ -1167,26 +1177,33 @@ function EnquiriesPreview({ reservations, onCreateReservation, onNewCountChange 
                       ? "Push настройката не успя"
                       : "Включи нотификации"}
             </button>
-            <button className={`rounded-xl px-3 py-2 text-sm font-black ${filter === "all" ? "bg-brand-600 text-white" : "bg-cream text-clay"}`} onClick={() => setFilter("all")}>Всички</button>
-            <button className={`rounded-xl px-3 py-2 text-sm font-black ${filter === "new" ? "bg-brand-600 text-white" : "bg-cream text-clay"}`} onClick={() => setFilter("new")}>Нови ({newCount})</button>
+            <button type="button" disabled={refreshing} className="rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm font-black text-clay" onClick={async () => { setRefreshing(true); try { await loadEnquiries(false); } finally { setRefreshing(false); } }}>{refreshing ? "Обновяване…" : "Обнови"}</button>
           </div>
         </div>
       </div>
 
+      <div className="flex flex-wrap gap-2">
+        <input aria-label="Търси запитвания" className="tap-target min-w-0 flex-1 rounded-2xl border border-stone-200 bg-white px-4 text-sm" placeholder="Търси по име, имейл или телефон…" value={query} onChange={event => setQuery(event.target.value)} />
+        <select aria-label="Месец на получаване" className="tap-target rounded-2xl border border-stone-200 bg-white px-3 text-sm font-bold" value={receivedMonth} onChange={event => setReceivedMonth(event.target.value)}>
+          <option value="all">Всички месеци</option>
+          {Array.from(new Set(enquiries.map(item => enquiryReceivedMonth(item.createdAt)))).filter(Boolean).sort().reverse().map(month => <option key={month} value={month}>{month}</option>)}
+        </select>
+        <select aria-label="Обект" className="tap-target rounded-2xl border border-stone-200 bg-white px-3 text-sm font-bold" value={propertyFilter} onChange={event => setPropertyFilter(event.target.value)}><option value="all">Двата обекта</option><option value="villa">Вила Лидия</option><option value="house">Къща Лидия</option></select>
+      </div>
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_17rem]">
+      <div className="grid min-w-0 gap-4">
+      <div className="flex flex-wrap gap-2" aria-label="Статус на запитване">
+        {([ ["all", "Всички", summary.total], ["new", "Нови", newCount], ["contacted", "В контакт", summary.contacted], ["converted", "С резервация", summary.converted], ["dismissed", "Архив", summary.archived] ] as const).map(([value,label,count]) => <button key={value} type="button" aria-pressed={filter === value} className={`tap-target rounded-xl px-3 py-2 text-sm font-bold ${filter === value ? "bg-brand-600 text-white" : "bg-white text-clay"}`} onClick={() => setFilter(value)}>{label} ({count})</button>)}
+      </div>
       {loading && <div className="soft-card rounded-3xl p-6 font-bold text-clay">Зареждане на запитванията...</div>}
       {loadError && <div className="rounded-2xl border border-red-100 bg-red-50 p-4 font-bold text-red-700">{loadError}</div>}
-      {!loading && !loadError && activeEnquiries.length === 0 && (
-        <div className="soft-card rounded-3xl p-6 text-center">
-          <Inbox size={28} className="mx-auto text-brand-700" />
-          <p className="mt-2 font-black">Няма активни запитвания.</p>
-          {archivedEnquiries.length > 0 && (
-            <p className="mt-1 text-sm font-semibold text-stone-500">Архивирани: {archivedEnquiries.length}</p>
-          )}
-        </div>
-      )}
+      {!loading && !loadError && visible.length === 0 && <div className="soft-card rounded-3xl p-8 text-center">
+        <Inbox size={28} className="mx-auto text-brand-700" /><p className="mt-3 font-black">{filter === "new" ? "Няма нови запитвания — всичко е прегледано." : "Няма запитвания за избраните филтри."}</p>
+        <button type="button" className="mt-3 rounded-xl border border-stone-200 px-4 py-2 text-sm font-bold text-clay" onClick={() => { setFilter("all"); setQuery(""); setReceivedMonth("all"); setPropertyFilter("all"); }}>Покажи всички запитвания</button>
+      </div>}
 
       {!loading && !loadError && selected && (
-        <div className="grid gap-4 lg:grid-cols-[0.95fr_1.35fr]">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.35fr)]">
           <div className="grid content-start gap-3">
             {visible.map((item) => {
               const active = item.id === selected.id;
@@ -1204,7 +1221,7 @@ function EnquiriesPreview({ reservations, onCreateReservation, onNewCountChange 
                       <div className="flex flex-wrap items-center gap-2">
                         <strong className="text-base">{item.name}</strong>
                         {!!item.unreadCount && <span className="rounded-full bg-red-100 px-2 py-1 text-xs font-bold text-red-800">{item.unreadCount} непрочетени</span>}
-                        {item.status === "new" ? (
+                        {converted.has(item.id) ? <span className="rounded-full bg-brand-100 px-2 py-1 text-[11px] font-black text-brand-800">С резервация</span> : item.status === "dismissed" ? <span className="rounded-full bg-stone-100 px-2 py-1 text-[11px] font-black text-stone-600">Архивирано</span> : item.status === "new" ? (
                           <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-black text-amber-800">Ново</span>
                         ) : (
                           <span className="rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-black text-emerald-800">В контакт</span>
@@ -1223,10 +1240,10 @@ function EnquiriesPreview({ reservations, onCreateReservation, onNewCountChange 
                       <button
                         type="button"
                         className="inline-flex items-center gap-1.5 rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs font-black text-clay shadow-sm transition hover:border-brand-200 hover:bg-cream"
-                        onClick={() => updateStatus(item.id, "dismissed").catch(() => setLoadError("Запитването не можа да се премести в архива."))}
-                        title="Маркирай като видяно и премести в архива"
+                        onClick={() => updateStatus(item.id, item.status === "dismissed" ? "new" : "dismissed").catch(() => setLoadError("Статусът не можа да се запише."))}
+                        title={item.status === "dismissed" ? "Възстанови като ново" : "Премести в архива"}
                       >
-                        <Check size={14} /> Видяно
+                        <Check size={14} /> {item.status === "dismissed" ? "Възстанови" : "Архивирай"}
                       </button>
                     </div>
                   </div>
@@ -1241,7 +1258,7 @@ function EnquiriesPreview({ reservations, onCreateReservation, onNewCountChange 
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="text-2xl font-black">{selected.name}</h3>
                   <span className={`rounded-full px-2.5 py-1 text-xs font-black ${selected.status === "new" ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}`}>
-                    {selected.status === "new" ? "Ново запитване" : "В контакт"}
+                    {converted.has(selected.id) ? "С резервация" : selected.status === "dismissed" ? "Архивирано" : selected.status === "new" ? "Ново запитване" : "В контакт"}
                   </span>
                 </div>
                 <p className="mt-1 font-bold text-brand-800">{selected.propertyLabel}</p>
@@ -1291,7 +1308,7 @@ function EnquiriesPreview({ reservations, onCreateReservation, onNewCountChange 
                 className="rounded-xl border border-stone-200 bg-white px-4 py-2.5 font-black text-clay"
                 onClick={() => updateStatus(selected.id, selected.status === "new" ? "contacted" : "new").catch(() => setLoadError("Статусът не можа да се запише."))}
               >
-                {selected.status === "new" ? "Маркирай като в контакт" : "Върни като ново"}
+                {selected.status === "new" ? "Маркирай като в контакт" : selected.status === "dismissed" ? "Възстанови като ново" : "Върни като ново"}
               </button>
               <button
                 type="button"
@@ -1306,38 +1323,18 @@ function EnquiriesPreview({ reservations, onCreateReservation, onNewCountChange 
         </div>
       )}
 
-      {!loading && !loadError && archivedEnquiries.length > 0 && (
-        <details className="soft-card rounded-3xl border border-stone-100 bg-white">
-          <summary className="cursor-pointer select-none px-4 py-4 font-black text-clay sm:px-5">
-            Архивирани запитвания ({archivedEnquiries.length})
-          </summary>
-          <div className="grid gap-3 border-t border-stone-100 p-4 sm:p-5">
-            {archivedEnquiries.map((item) => (
-              <div key={item.id} className="rounded-2xl border border-stone-200 bg-cream/60 p-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <strong>{item.name}</strong>
-                      <span className="rounded-full bg-stone-200 px-2 py-1 text-[11px] font-black text-stone-600">Архивирано</span>
-                    </div>
-                    <p className="mt-1 text-sm font-bold text-clay">{item.propertyLabel} · {item.interest}</p>
-                    <p className="mt-1 text-sm text-stone-500">
-                      {formatShortDate(item.checkin)} → {formatShortDate(item.checkout)} · {item.adults + item.children} гости · {item.receivedLabel}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    className="rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm font-black text-clay hover:border-brand-200"
-                    onClick={() => updateStatus(item.id, "new").catch(() => setLoadError("Запитването не можа да се възстанови."))}
-                  >
-                    Възстанови
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </details>
-      )}
+      </div>
+      <aside className="soft-card grid gap-4 rounded-3xl p-5" aria-label="Резултати от запитванията">
+        <div><h3 className="text-lg font-black text-ink">От запитване до гост</h3><p className="mt-1 text-xs font-semibold text-clay">По дата на получаване · {receivedMonth === "all" ? "Всички месеци" : receivedMonth}</p></div>
+        {loading || loadError ? <p className="text-sm text-clay">{loadError ? "Статистиката не е налична." : "Зареждане…"}</p> : <>
+          <div className="rounded-2xl bg-brand-600 p-4 text-white"><p className="text-sm font-bold">Conversion в резервация</p><p className="mt-2 text-3xl font-black">{summary.conversion === null ? "—" : `${summary.conversion.toLocaleString("bg-BG", { maximumFractionDigits: 1 })}%`}</p><p className="mt-2 text-sm">{summary.converted} от {summary.total} запитвания</p></div>
+          <dl className="grid gap-3 text-sm">{[["Реални запитвания", summary.total], ["С резервация", summary.converted], ["Нови за обработка", summary.new], ["В контакт", summary.contacted], ["В архив без свързана резервация", summary.archived]].map(([label, value]) => <div key={label} className="flex justify-between gap-3"><dt className="text-clay">{label}</dt><dd className="font-black text-ink">{value}</dd></div>)}</dl>
+          <button type="button" className="tap-target rounded-xl border border-stone-200 px-3 py-2 text-sm font-bold text-brand-800" onClick={() => setFilter("converted")}>Разгледай резервациите →</button>
+          <p className="text-xs leading-relaxed text-clay">Броим запитванията с поне една свързана, неанулирана резервация. Старите резервации без връзка към запитване не участват. Архив ≠ отказ.</p>
+          <p className="border-t border-stone-100 pt-3 text-xs text-clay">Обновено {lastUpdated || "—"} · автоматично през 30 сек.</p>
+        </>}
+      </aside>
+      </div>
     </section>
   );
 }
@@ -3437,7 +3434,7 @@ function ReservationsView({ month, propertyId, reservations, query, setQuery, fi
   );
 }
 
-function TransactionsView({ data, month, setMonth, addRow, updateRow, removeRow }: { data: AppData; month: string; setMonth: (value: string) => void; addRow: (kind: "income" | "expense", row: Omit<ManualIncome | Expense, "id" | "month">) => void; updateRow: (kind: "income" | "expense", id: string, row: Omit<ManualIncome | Expense, "id" | "month">) => void; removeRow: (kind: "income" | "expense", id: string) => void }) {
+function TransactionsView({ data, month, setMonth, createCategory, addRow, updateRow, removeRow }: { data: AppData; month: string; setMonth: (value: string) => void; createCategory: (kind: "income" | "expense", name: string) => Promise<void>; addRow: (kind: "income" | "expense", row: Omit<ManualIncome | Expense, "id" | "month">) => void; updateRow: (kind: "income" | "expense", id: string, row: Omit<ManualIncome | Expense, "id" | "month">) => void; removeRow: (kind: "income" | "expense", id: string) => void }) {
   const incomes = Object.values(data.manualIncomes).filter((row) => row.month === month);
   const expenses = Object.values(data.expenses).filter((row) => row.month === month);
   const incomeTotal = sumAmounts(incomes.map((row) => row.amount));
@@ -3466,8 +3463,8 @@ function TransactionsView({ data, month, setMonth, addRow, updateRow, removeRow 
         </div>
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
-        <FinancePanel title="Ръчни приходи" kind="income" types={incomeTypes} rows={incomes} addRow={addRow} updateRow={updateRow} removeRow={removeRow} />
-        <FinancePanel title="Разходи" kind="expense" types={expenseTypes} rows={expenses} addRow={addRow} updateRow={updateRow} removeRow={removeRow} />
+        <FinancePanel title="Ръчни приходи" kind="income" types={Array.from(new Set([...incomeTypes, ...(data.financeCategories?.income || []), ...Object.values(data.manualIncomes).map(row => row.type)]))} createCategory={createCategory} rows={incomes} addRow={addRow} updateRow={updateRow} removeRow={removeRow} />
+        <FinancePanel title="Разходи" kind="expense" types={Array.from(new Set([...expenseTypes, ...(data.financeCategories?.expense || []), ...Object.values(data.expenses).map(row => row.type)]))} createCategory={createCategory} rows={expenses} addRow={addRow} updateRow={updateRow} removeRow={removeRow} />
       </div>
     </section>
   );
@@ -3718,13 +3715,34 @@ function YearToDateFinanceChart({ data, months, selectedMonth, revealed }: { dat
   );
 }
 
-function FinancePanel({ title, kind, types, rows, addRow, updateRow, removeRow }: { title: string; kind: "income" | "expense"; types: string[]; rows: Array<ManualIncome | Expense>; addRow: (kind: "income" | "expense", row: Omit<ManualIncome | Expense, "id" | "month">) => void; updateRow: (kind: "income" | "expense", id: string, row: Omit<ManualIncome | Expense, "id" | "month">) => void; removeRow: (kind: "income" | "expense", id: string) => void }) {
+function FinancePanel({ title, kind, types, createCategory, rows, addRow, updateRow, removeRow }: { title: string; kind: "income" | "expense"; types: string[]; createCategory: (kind: "income" | "expense", name: string) => Promise<void>; rows: Array<ManualIncome | Expense>; addRow: (kind: "income" | "expense", row: Omit<ManualIncome | Expense, "id" | "month">) => void; updateRow: (kind: "income" | "expense", id: string, row: Omit<ManualIncome | Expense, "id" | "month">) => void; removeRow: (kind: "income" | "expense", id: string) => void }) {
   const [date, setDate] = useState(todayISO());
   const [type, setType] = useState(types[0]);
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [showList, setShowList] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  const [creatingCategory, setCreatingCategory] = useState(false);
+  const [categoryName, setCategoryName] = useState("");
+  const [categoryError, setCategoryError] = useState("");
+  const [categorySaving, setCategorySaving] = useState(false);
+
+  async function saveCategory() {
+    const name = categoryName.trim().replace(/\s+/g, " ");
+    if (!name) { setCategoryError("Въведете име на категорията."); return; }
+    const existing = types.find(item => item.toLocaleLowerCase("bg") === name.toLocaleLowerCase("bg"));
+    setCategorySaving(true);
+    setCategoryError("");
+    try {
+      if (!existing) await createCategory(kind, name);
+      setType(existing || name);
+      setCreatingCategory(false);
+      setCategoryName("");
+    } catch {
+      setCategoryError("Категорията не беше запазена. Опитайте отново.");
+    } finally { setCategorySaving(false); }
+  }
 
   function clearFinanceForm() {
     setAmount("");
@@ -3763,13 +3781,29 @@ function FinancePanel({ title, kind, types, rows, addRow, updateRow, removeRow }
       </div>
       <div className="grid gap-2">
         <input className="tap-target rounded-2xl border border-stone-200 bg-white px-3 outline-none focus:ring-2 focus:ring-brand-100" type="date" value={date} onChange={(event) => setDate(event.target.value)} />
-        <select className="tap-target rounded-2xl border border-stone-200 bg-white px-3 outline-none focus:ring-2 focus:ring-brand-100" value={type} onChange={(event) => setType(event.target.value)}>
-          {types.map((item) => <option key={item}>{item}</option>)}
+        <select className="tap-target rounded-2xl border border-stone-200 bg-white px-3 outline-none focus:ring-2 focus:ring-brand-100" aria-label="Категория" value={creatingCategory ? "__create_category__" : type} onChange={(event) => {
+          setCreatingCategory(event.target.value === "__create_category__");
+          setCategoryError("");
+          if (event.target.value !== "__create_category__") setType(event.target.value);
+        }}>
+          {types.filter(item => (kind === "income" ? incomeTypes : expenseTypes).includes(item)).map(item => <option key={item}>{item}</option>)}
+          <option value="__create_category__">＋ Създай категория</option>
+          {types.filter(item => !(kind === "income" ? incomeTypes : expenseTypes).includes(item)).map(item => <option key={item}>{item}</option>)}
         </select>
+        {creatingCategory && <div className="grid gap-2 rounded-2xl border border-stone-200 bg-white p-3">
+          <label className="text-sm font-bold text-clay">Име на категорията
+            <input autoFocus maxLength={80} disabled={categorySaving} className="tap-target mt-2 w-full rounded-xl border border-stone-200 px-3 text-ink" placeholder="Например: Косене" value={categoryName} onChange={event => setCategoryName(event.target.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); void saveCategory(); } }} />
+          </label>
+          {categoryError && <p role="alert" className="text-sm text-rose-700">{categoryError}</p>}
+          <div className="flex gap-2">
+            <Button type="button" disabled={categorySaving} className="tap-target rounded-xl bg-brand-600 px-4 font-bold text-white" onClick={() => void saveCategory()}>{categorySaving ? "Запазване…" : "Създай"}</Button>
+            <Button type="button" disabled={categorySaving} className="tap-target rounded-xl border border-stone-200 px-4 font-bold text-clay" onClick={() => setCreatingCategory(false)}>Отказ</Button>
+          </div>
+        </div>}
         <input className="tap-target rounded-2xl border border-stone-200 bg-white px-3 outline-none focus:ring-2 focus:ring-brand-100" inputMode="decimal" placeholder="Сума, €" value={amount} onChange={(event) => setAmount(event.target.value)} />
         <input className="tap-target rounded-2xl border border-stone-200 bg-white px-3 outline-none focus:ring-2 focus:ring-brand-100" placeholder="Описание" value={note} onChange={(event) => setNote(event.target.value)} />
         <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-          <Button type="button" className="tap-target rounded-2xl bg-brand-600 px-4 py-2 font-black text-white shadow-sm" onClick={submitFinanceRow}>
+          <Button type="button" className="tap-target rounded-2xl bg-brand-600 px-4 py-2 font-black text-white shadow-sm" disabled={creatingCategory || categorySaving} onClick={submitFinanceRow}>
             {editingId ? "Запази" : "Добави"}
           </Button>
           {editingId && (
@@ -3779,6 +3813,10 @@ function FinancePanel({ title, kind, types, rows, addRow, updateRow, removeRow }
           )}
         </div>
       </div>
+      {rows.length > 0 && <details className="mt-3 rounded-2xl border border-stone-200 bg-white p-3 text-sm">
+        <summary className="cursor-pointer font-bold text-clay">Обобщение по категории за месеца</summary>
+        <div className="mt-3 grid gap-2">{Array.from(new Set(rows.map(row => row.type))).map(category => <div key={category} className="flex justify-between gap-3"><span className="break-words">{category}</span><strong className="shrink-0">{eur(sumAmounts(rows.filter(row => row.type === category).map(row => row.amount)))}</strong></div>)}</div>
+      </details>}
       {showList && (
         <div className="mt-3 grid gap-2">
           {rows.map((row) => (

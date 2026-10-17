@@ -54,6 +54,7 @@ export type AppData = {
   expenses: Record<string, Expense>;
   bookingOpenInventory: BookingOpenInventory;
   bookingFeedTokens: BookingFeedTokens;
+  financeCategories?: { income?: string[]; expense?: string[] };
 };
 
 export type LegacyData = {
@@ -65,6 +66,7 @@ export type LegacyData = {
   reservationMasters?: Record<string, Record<string, unknown>>;
   bookingOpenInventory?: BookingOpenInventory;
   bookingFeedTokens?: BookingFeedTokens;
+  financeCategories?: { income?: string[]; expense?: string[] };
 };
 
 export const PROPERTIES: PropertyConfig[] = [

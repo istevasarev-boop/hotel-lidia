@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeImportedData } from "@/domain/reservations/legacyAdapter";
+import { normalizeImportedData, v2ToLegacy } from "@/domain/reservations/legacyAdapter";
 
 describe("legacy data adapter", () => {
   it("converts old reservation masters and skips linked automatic incomes", () => {
@@ -34,5 +34,19 @@ describe("legacy data adapter", () => {
     expect(data.reservations.abc.guestName).toBe("Мария");
     expect(Object.values(data.manualIncomes)).toHaveLength(1);
     expect(Object.values(data.expenses)).toHaveLength(1);
+  });
+});
+
+
+describe("custom finance categories", () => {
+  it("preserves unused categories and separately typed transactions through cloud/export round trips", () => {
+    const data = normalizeImportedData({
+      financeCategories: { income: ["Събития"], expense: ["Косене", "Градина"] },
+      finances: { expenses: { "2026-10": [{ date: "2026-10-17", type: "Косене", amount: 50, note: "" }] } }
+    });
+    const restored = normalizeImportedData(v2ToLegacy(normalizeImportedData(data)));
+    expect(restored.financeCategories).toEqual({ income: ["Събития"], expense: ["Косене", "Градина"] });
+    expect(Object.values(restored.expenses)[0]).toMatchObject({ type: "Косене", amount: 50 });
+    expect(normalizeImportedData({}).financeCategories).toEqual({});
   });
 });

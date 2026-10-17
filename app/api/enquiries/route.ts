@@ -1,3 +1,4 @@
+import { isInternalEnquiry } from "@/domain/enquiries/reporting";
 import { NextResponse, type NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import { getFirebaseAdminAuth, hasFirebaseAdminConfig } from "@/lib/firebase/admin";
@@ -27,6 +28,11 @@ export async function GET(request: NextRequest) {
   const body = await response.text();
   if (!response.ok) {
     console.error(`enquiries proxy GET upstream failed: status=${response.status} body=${body.slice(0, 120)}`);
+  }
+  if (response.ok) {
+    const payload = JSON.parse(body) as { enquiries?: Array<{ email: string }> };
+    if (Array.isArray(payload.enquiries)) payload.enquiries = payload.enquiries.filter(item => !isInternalEnquiry(item));
+    return NextResponse.json(payload);
   }
   return new NextResponse(body, {
     status: response.status,
