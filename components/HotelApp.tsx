@@ -21,6 +21,8 @@ import { getCurrentIdToken, listenAuth, loginWithEmail, logout } from "@/lib/fir
 import { enablePersistentPushNotifications, type PushSetupState } from "@/lib/push";
 import { createBackup, createDailyBackupIfNeeded, listBackups, restoreBackup, type BackupListItem } from "@/lib/firebase/backups";
 import { getEnquiryAvailability, type AvailabilityRequest } from "@/domain/enquiries/availability";
+import { EnquiryReservationLink } from "@/components/EnquiryReservationLink";
+import { linkExistingReservation } from "@/domain/enquiries/reservationLink";
 import { convertedEnquiryIds, enquiryReceivedMonth, enquirySummary, isInternalEnquiry } from "@/domain/enquiries/reporting";
 import { EnquiryAvailabilityBadge } from "@/components/EnquiryAvailabilityBadge";
 import { EnquiryConversation } from "@/components/EnquiryConversation";
@@ -855,7 +857,13 @@ export function HotelApp({
         await persist({ ...data, financeCategories: { ...data.financeCategories, [kind]: [...(data.financeCategories?.[kind] || []), name] } });
       }} addRow={addFinanceRow} updateRow={updateFinanceRow} removeRow={removeFinanceRow} />}
       {tab === "finance" && !initialDataLoading && <FinanceView data={data} unlocked={financeUnlocked} setUnlocked={setFinanceUnlocked} />}
-      {tab === "enquiries" && !initialDataLoading && <EnquiriesPreview reservations={reservations} onNewCountChange={setEnquiryNewCount} onCreateReservation={(enquiry, latestReservations) => {
+      {tab === "enquiries" && !initialDataLoading && <EnquiriesPreview reservations={reservations} onLinkReservation={async (enquiryId, reservationId) => {
+        const loaded = await loadHotelData();
+        if (loaded.source !== "cloud") throw new Error("Няма актуална връзка с календара. Опитайте отново.");
+        const next = linkExistingReservation(loaded.data, enquiryId, reservationId);
+        if (next !== loaded.data) await persist(next);
+        else setData(loaded.data);
+      }} onNewCountChange={setEnquiryNewCount} onCreateReservation={(enquiry, latestReservations) => {
         setData(current => ({ ...current, reservations: Object.fromEntries(latestReservations.map(item => [item.id, item])) }));
         openNewReservation(enquiry.propertyId, enquiry.checkin, "", {
         ...createReservationDraft(enquiry.propertyId, enquiry.checkin),
@@ -1012,7 +1020,7 @@ function notifyNewEnquiry(enquiry: PreviewEnquiry) {
 }
 
 
-function EnquiriesPreview({ reservations, onCreateReservation, onNewCountChange }: { reservations: Reservation[]; onCreateReservation: (enquiry: PreviewEnquiry, latestReservations: Reservation[]) => void; onNewCountChange?: (count: number) => void }) {
+function EnquiriesPreview({ reservations, onCreateReservation, onNewCountChange, onLinkReservation }: { reservations: Reservation[]; onLinkReservation: (enquiryId: string, reservationId: string) => Promise<void>; onCreateReservation: (enquiry: PreviewEnquiry, latestReservations: Reservation[]) => void; onNewCountChange?: (count: number) => void }) {
   const [enquiries, setEnquiries] = useState<PreviewEnquiry[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [filter, setFilter] = useState<"all" | "new" | "contacted" | "converted" | "dismissed">("all");
@@ -1143,6 +1151,7 @@ function EnquiriesPreview({ reservations, onCreateReservation, onNewCountChange 
   const selected = visible.find(item => item.id === selectedId) || visible[0];
   const newCount = summary.new;
   const selectedAvailability = selected ? availabilityFor(selected) : null;
+  const linkedReservation = selected ? reservations.find(item => item.status !== "cancelled" && item.notes.includes(`[enquiry:${selected.id}]`)) : undefined;
   const alreadyCreated = selected ? converted.has(selected.id) : false;
   const canCreate = calendar.ready && !alreadyCreated && selectedAvailability?.status !== "occupied" && !!selectedAvailability?.freeRooms.length;
 
@@ -1273,6 +1282,13 @@ function EnquiriesPreview({ reservations, onCreateReservation, onNewCountChange 
                 <Plus size={18} className="mr-2 inline" /> {alreadyCreated ? "Вече е създадена" : "Създай резервация"}
               </button>
             </div>
+
+            {linkedReservation && <div className="mt-4 rounded-2xl border border-brand-200 bg-brand-50 p-4 text-sm">
+              <p className="font-black text-brand-800">Свързана резервация: {linkedReservation.guestName}</p>
+              <p className="mt-1 text-clay">{linkedReservation.checkin} → {linkedReservation.checkout} · {PROPERTIES.find(item => item.id === linkedReservation.propertyId)?.name} · {linkedReservation.rooms.includes("all") ? "Целият обект" : `Стаи ${linkedReservation.rooms.join(", ")}`}</p>
+              <a className="tap-target mt-2 inline-flex items-center font-bold text-brand-800 underline" href={`/?tab=upcoming&property=${linkedReservation.propertyId}&edit=${linkedReservation.id}`}>Отвори резервацията →</a>
+            </div>}
+            {!alreadyCreated && <EnquiryReservationLink key={selected.id} enquiry={selected} reservations={calendar.ready ? calendar.reservations : reservations} ready={calendar.ready} onLink={onLinkReservation} />}
 
             <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <InfoTile label="Период" value={`${formatShortDate(selected.checkin)} – ${formatShortDate(selected.checkout)}`} />
