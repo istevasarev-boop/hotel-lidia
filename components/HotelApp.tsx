@@ -21,6 +21,8 @@ import { getCurrentIdToken, listenAuth, loginWithEmail, logout } from "@/lib/fir
 import { enablePersistentPushNotifications, type PushSetupState } from "@/lib/push";
 import { createBackup, createDailyBackupIfNeeded, listBackups, restoreBackup, type BackupListItem } from "@/lib/firebase/backups";
 import { getEnquiryAvailability, type AvailabilityRequest } from "@/domain/enquiries/availability";
+import { financeHistoryMonths } from "@/domain/finance/revenueBreakdown";
+import { FinanceRevenueOverview } from "@/components/FinanceRevenueOverview";
 import { EnquiryReservationLink } from "@/components/EnquiryReservationLink";
 import { linkExistingReservation } from "@/domain/enquiries/reservationLink";
 import { convertedEnquiryIds, enquiryReceivedMonth, enquirySummary, isInternalEnquiry } from "@/domain/enquiries/reporting";
@@ -3489,41 +3491,7 @@ function TransactionsView({ data, month, setMonth, createCategory, addRow, updat
 function FinanceView({ data, unlocked, setUnlocked }: { data: AppData; unlocked: boolean; setUnlocked: (value: boolean) => void }) {
   const [section, setSection] = useState<"overview" | "marketing" | "website">("overview");
   const [selectedMonth, setSelectedMonth] = useState(monthKey(todayISO()));
-  const [showSummary, setShowSummary] = useState(false);
-  const [confirmUnlock, setConfirmUnlock] = useState(false);
-  const kpis = calculateFinanceSummary(data, selectedMonth);
-  const ratioLabel = formatExpenseRatio(kpis);
-  const occupancyPercent = calculateOccupancyPercent(data, selectedMonth);
-  const financeInsights = useMemo(() => buildMonthlyFinanceInsights(data, selectedMonth), [data, selectedMonth]);
-  const [insightIndex, setInsightIndex] = useState(0);
-
-  useEffect(() => {
-    setInsightIndex(0);
-  }, [selectedMonth, financeInsights.length]);
-
-  useEffect(() => {
-    if (financeInsights.length <= 1) return undefined;
-    const timer = window.setInterval(() => {
-      setInsightIndex((value) => (value + 1) % financeInsights.length);
-    }, 5000);
-    return () => window.clearInterval(timer);
-  }, [financeInsights.length]);
-
-  function togglePrivacy() {
-    if (unlocked) {
-      pulsePrivacyHaptic();
-      setUnlocked(false);
-      return;
-    }
-
-    setConfirmUnlock(true);
-  }
-
-  function revealFinanceValues() {
-    pulsePrivacyHaptic();
-    setUnlocked(true);
-    setConfirmUnlock(false);
-  }
+  function togglePrivacy() { pulsePrivacyHaptic(); setUnlocked(!unlocked); }
 
   return (
     <section className="soft-card relative rounded-3xl p-4">
@@ -3543,32 +3511,15 @@ function FinanceView({ data, unlocked, setUnlocked }: { data: AppData; unlocked:
           </Button>
         </div>
       </div>
-      <div className="mb-3 grid grid-cols-2 gap-2" role="tablist" aria-label="Отчети във Финанси">
-        {([['marketing', 'Маркетинг'], ['website', 'Сайт и аудитории']] as const).map(([id, label]) => <button key={id} type="button" id={`finance-${id}-tab`} role="tab" aria-selected={section === id} aria-controls="finance-report-panel" onClick={() => setSection(section === id ? "overview" : id)} className={`min-h-11 min-w-0 rounded-xl px-2 py-2 text-sm font-bold sm:px-4 ${section === id ? 'bg-pine text-white' : 'bg-white text-clay'}`}>{label}</button>)}
+      <div className="mb-4 mt-5 grid gap-3 sm:grid-cols-2" aria-label="Подсекции във Финанси">
+        {([['marketing', 'Маркетинг', 'Кампании и рекламни резултати'], ['website', 'Сайт и аудитория', 'Посещения и поведение на гостите']] as const).map(([id, label, hint]) => <button key={id} type="button" id={`finance-${id}-tab`} aria-pressed={section === id} aria-controls="finance-report-panel" onClick={() => setSection(section === id ? "overview" : id)} className={`tap-target flex min-w-0 items-center justify-between gap-3 rounded-2xl border p-4 text-left ${id === 'marketing' ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-sky-200 bg-sky-50 text-sky-900'} ${section === id ? 'ring-2 ring-current' : ''}`}><span><strong className="block text-base font-black">{label}</strong><span className="mt-1 block text-xs font-medium text-clay">{hint}</span></span><ChevronRight size={20} /></button>)}
       </div>
       <div id="finance-report-panel" role="tabpanel" aria-labelledby={`finance-${section === "website" ? "website" : "marketing"}-tab`} hidden={section === "overview"}>
         {section !== "overview" && (unlocked ? <MarketingView tab={section === "website" ? "website" : "campaigns"} /> : <div className="rounded-2xl bg-white p-4"><p className="text-clay">Натисни „Покажи“ отгоре, за да отключиш отчетите.</p></div>)}
       </div>
-      <div id="finance-overview-panel" hidden={section !== "overview"}>
-      <div className={`transition duration-300 ${unlocked ? "opacity-100" : "opacity-85 blur-[0.6px]"}`}>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-          <Kpi label="Общи Приходи" value={getFinanceRevenue(kpis)} revealed={unlocked} />
-          <Kpi label="Разходи" value={kpis.expenses} danger revealed={unlocked} />
-          <Kpi label="Нетно" value={kpis.net} revealed={unlocked} />
-          <KpiText label="Разходи / Приходи" value={ratioLabel} danger={kpis.expenses > 0} revealed={unlocked} mask="**%" />
-          <OccupancyKpi value={occupancyPercent} revealed={unlocked} />
-        </div>
-        <FinanceInsightCarousel insights={financeInsights} activeIndex={insightIndex} revealed={unlocked} />
-        <MonthlyFinanceChart data={data} month={selectedMonth} revealed={unlocked} />
-        <div className="mt-4">
-          <Button type="button" className="tap-target rounded-2xl border border-stone-200 bg-white px-4 py-2 font-black text-clay shadow-sm" onClick={() => setShowSummary((value) => !value)}>
-            {showSummary ? "Скрий обобщение" : "Покажи обобщение"}
-          </Button>
-        </div>
-        {showSummary && <FinanceSummaryTable data={data} selectedMonth={selectedMonth} revealed={unlocked} />}
-      </div>
-      </div>
-      {confirmUnlock && <FinancePrivacyPrompt onCancel={() => setConfirmUnlock(false)} onReveal={revealFinanceValues} />}
+      {section !== "overview" && <button type="button" className="tap-target mt-3 text-sm font-bold text-brand-800" onClick={() => setSection("overview")}>← Финансов преглед</button>}
+      {section === "overview" && <FinanceRevenueOverview data={data} month={selectedMonth} unlocked={unlocked} summary={<><MonthlyFinanceChart data={data} month={selectedMonth} revealed={unlocked} /><FinanceSummaryTable data={data} selectedMonth={selectedMonth} revealed={unlocked} onSelectMonth={setSelectedMonth} /></>} />}
+
     </section>
   );
 }
@@ -3647,7 +3598,7 @@ function MonthlyFinanceChart({ data, month, revealed }: { data: AppData; month: 
   );
 }
 
-function FinanceSummaryTable({ data, selectedMonth, revealed }: { data: AppData; selectedMonth: string; revealed: boolean }) {
+function FinanceSummaryTable({ data, selectedMonth, revealed, onSelectMonth }: { data: AppData; selectedMonth: string; revealed: boolean; onSelectMonth?: (month: string) => void }) {
   const months = getFinanceMonths(data, selectedMonth);
   return (
     <div className="mt-4 rounded-3xl bg-cream p-4 ring-1 ring-stone-200">
@@ -3667,7 +3618,7 @@ function FinanceSummaryTable({ data, selectedMonth, revealed }: { data: AppData;
               const row = calculateFinanceSummary(data, monthValue);
               return (
                 <tr key={monthValue} className={monthValue === selectedMonth ? "bg-brand-50" : "bg-white"}>
-                  <td className="rounded-l-2xl px-3 py-3 font-black text-ink">{formatMonthLabel(monthValue)}</td>
+                  <td className="rounded-l-2xl px-3 py-3 font-black text-ink">{onSelectMonth ? <button type="button" className="tap-target text-left font-black text-brand-800 underline" onClick={() => onSelectMonth(monthValue)}>{formatMonthLabel(monthValue)}</button> : formatMonthLabel(monthValue)}</td>
                   <td className="px-3 py-3 font-bold"><FinanceValue text={eurWhole(getFinanceRevenue(row))} revealed={revealed} /></td>
                   <td className="px-3 py-3 font-bold text-red-700"><FinanceValue text={eurWhole(row.expenses)} revealed={revealed} /></td>
                   <td className="rounded-r-2xl px-3 py-3 font-black"><FinanceValue text={eurWhole(row.net)} revealed={revealed} /></td>
@@ -3736,6 +3687,7 @@ function FinancePanel({ title, kind, types, createCategory, rows, addRow, update
   const [type, setType] = useState(types[0]);
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
+  const [expenseProperty, setExpenseProperty] = useState<PropertyId | "">("");
   const [showList, setShowList] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -3767,7 +3719,7 @@ function FinancePanel({ title, kind, types, createCategory, rows, addRow, update
   }
 
   function submitFinanceRow() {
-    const row = { date, type, amount: Number(amount || 0), note };
+    const row = { date, type, amount: Number(amount || 0), note, ...(kind === "expense" ? { propertyId: expenseProperty || null } : {}) };
     if (editingId) {
       debugClick("finance edit " + kind);
       updateRow(kind, editingId, row);
@@ -3783,6 +3735,7 @@ function FinancePanel({ title, kind, types, createCategory, rows, addRow, update
     setEditingId(row.id);
     setDate(row.date);
     setType(row.type);
+    setExpenseProperty("propertyId" in row ? row.propertyId || "" : "");
     setAmount(String(row.amount || ""));
     setNote(row.note || "");
   }
@@ -3797,6 +3750,7 @@ function FinancePanel({ title, kind, types, createCategory, rows, addRow, update
       </div>
       <div className="grid gap-2">
         <input className="tap-target rounded-2xl border border-stone-200 bg-white px-3 outline-none focus:ring-2 focus:ring-brand-100" type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+        {kind === "expense" && <label className="grid gap-1 text-sm font-bold text-clay">Обект<select aria-label="Обект на разхода" className="tap-target rounded-2xl border border-stone-200 bg-white px-3 text-ink" value={expenseProperty} onChange={event => setExpenseProperty(event.target.value as PropertyId | "")}><option value="">Общи / неразпределени</option>{PROPERTIES.map(property => <option key={property.id} value={property.id}>{property.name}</option>)}</select></label>}
         <select className="tap-target rounded-2xl border border-stone-200 bg-white px-3 outline-none focus:ring-2 focus:ring-brand-100" aria-label="Категория" value={creatingCategory ? "__create_category__" : type} onChange={(event) => {
           setCreatingCategory(event.target.value === "__create_category__");
           setCategoryError("");
@@ -5944,11 +5898,7 @@ function formatExpenseRatio(summary: FinanceSummary): string {
 }
 
 function getFinanceMonths(data: AppData, selectedMonth: string): string[] {
-  const months = new Set<string>([selectedMonth, monthKey(todayISO())]);
-  Object.values(data.reservations).forEach((reservation) => months.add(monthKey(reservation.checkin)));
-  Object.values(data.manualIncomes).forEach((income) => months.add(income.month));
-  Object.values(data.expenses).forEach((expense) => months.add(expense.month));
-  return Array.from(months).sort().reverse();
+  return financeHistoryMonths(data, selectedMonth, monthKey(todayISO()));
 }
 
 function sumAmounts(values: number[]): number {

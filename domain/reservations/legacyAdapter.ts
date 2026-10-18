@@ -70,6 +70,7 @@ export function legacyToV2(legacy: LegacyData): AppData {
     rows.forEach((row, index) => {
       const id = `legacy_expense_${month}_${index}`;
       data.expenses[id] = {
+        ...(asProperty(row.propertyId) ? { propertyId: asProperty(row.propertyId)! } : {}),
         id,
         month,
         date: stringValue(row.date) || `${month}-01`,
@@ -155,6 +156,7 @@ export function v2ToLegacy(data: AppData): LegacyData {
   Object.values(data.expenses).forEach((expense) => {
     legacy.finances!.expenses![expense.month] = legacy.finances!.expenses![expense.month] || [];
     legacy.finances!.expenses![expense.month]!.push({
+      ...(expense.propertyId ? { propertyId: expense.propertyId } : {}),
       date: expense.date,
       type: expense.type,
       amount: expense.amount,

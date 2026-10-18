@@ -36,6 +36,7 @@ export type ManualIncome = {
 };
 
 export type Expense = {
+  propertyId?: PropertyId;
   id: string;
   month: string;
   date: string;
