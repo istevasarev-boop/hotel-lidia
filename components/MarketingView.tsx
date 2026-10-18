@@ -35,7 +35,7 @@ export function MarketingView({ tab = "campaigns" }: { tab?: "campaigns" | "webs
   const totals = data.campaigns.reduce((sum, row) => ({ cost: sum.cost + row.cost, clicks: sum.clicks + row.clicks, impressions: sum.impressions + row.impressions }), { cost: 0, clicks: 0, impressions: 0 });
   const enquiries = data.events.find(([name]) => name === "Изпратено запитване")?.[1];
   return <div className="space-y-5">
-    <div><h2 className="text-2xl font-bold text-ink">{tab === "campaigns" ? "Маркетинг" : "Сайт и аудитории"}</h2><p className="mt-2 text-sm text-clay">{data.period} · Експорт през Supermetrics: {data.updatedAt.split('-').reverse().join('.')}</p><p className="mt-1 text-sm text-clay">Google Ads + GA4 · {data.hostname}</p></div>
+    <div><h2 className="text-2xl font-bold text-ink">{tab === "campaigns" ? "Маркетинг" : "Сайт и аудитории"}</h2><p className="mt-2 text-sm text-clay">{data.period} · Обновено: {data.updatedAt.split('-').reverse().join('.')}</p><p className="mt-1 text-sm text-clay">Google Ads + GA4 · {data.hostname}</p></div>
     <section hidden={tab !== 'campaigns'} className="space-y-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-3"><Stat label="Разход · Google Ads" value={money(totals.cost, 'EUR')} /><Stat label="Кликове" value={number(totals.clicks)} detail={`CTR ${percent(totals.clicks, totals.impressions)}`} /><Stat label="Средна цена на клик" value={totals.clicks ? money(totals.cost / totals.clicks, 'EUR') : '—'} /></div>
       <div className="rounded-2xl bg-white p-4"><h3 className="mb-3 text-lg font-bold text-ink">Кампании · Google Ads</h3>
