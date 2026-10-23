@@ -1,3 +1,4 @@
+import { withDeadline } from "@/lib/deadline";
 import { HotelApp } from "@/components/HotelApp";
 import { normalizeImportedData } from "@/domain/reservations/legacyAdapter";
 import { createEmptyData, type AppData } from "@/domain/reservations/types";
@@ -20,7 +21,8 @@ export default async function Home({ searchParams }: { searchParams: SearchParam
   const query = stringParam(params.q);
   const cookieStore = await cookies();
   const sessionToken = cookieStore.get("hotel_lidia_session")?.value;
-  const initialLoad = await loadInitialData(sessionToken);
+  const initialLoad = await withDeadline(loadInitialData(sessionToken), 8000)
+    .catch(() => ({ data: createEmptyData(), source: "cloud-unavailable" as const }));
 
   return (
     <HotelApp

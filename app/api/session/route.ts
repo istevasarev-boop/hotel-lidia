@@ -20,7 +20,8 @@ export async function POST(request: NextRequest) {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ idToken }),
-    cache: "no-store"
+    cache: "no-store",
+    signal: AbortSignal.timeout(8000)
   }).catch(() => null);
 
   if (!verification?.ok) {

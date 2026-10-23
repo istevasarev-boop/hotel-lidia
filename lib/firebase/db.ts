@@ -133,15 +133,18 @@ export async function deleteHotelReservation(data: AppData, reservationId: strin
 
 export function cacheData(data: AppData): void {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(data));
+  try {
+    window.localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(data));
+  } catch {
+    // An optional device cache must never invalidate a successful cloud operation.
+  }
 }
 
 export function readCachedData(): AppData | null {
   if (typeof window === "undefined") return null;
-  const raw = window.localStorage.getItem(LOCAL_CACHE_KEY);
-  if (!raw) return null;
-
   try {
+    const raw = window.localStorage.getItem(LOCAL_CACHE_KEY);
+    if (!raw) return null;
     return normalizeImportedData(JSON.parse(raw));
   } catch {
     return null;
@@ -162,7 +165,7 @@ async function loadLegacyWithRest(): Promise<unknown | null> {
     throw new FirebaseDataError(`Firebase REST load denied: ${response.status}`, "permission-denied");
   }
   if (!response.ok) throw new FirebaseDataError(`Firebase REST load failed: ${response.status}`, "cloud-unavailable");
-  return response.json();
+  return withTimeout(response.json(), 12000);
 }
 
 async function saveLegacySnapshot(legacySnapshot: unknown): Promise<void> {
@@ -317,7 +320,7 @@ function isPermissionError(error: unknown): boolean {
 async function getClientAuthToken(): Promise<string | undefined> {
   const user = getFirebaseServices()?.auth.currentUser;
   if (!user) return undefined;
-  return user.getIdToken();
+  return withTimeout(user.getIdToken(), 8000);
 }
 
 function firebaseRestUrl(databaseUrl: string, path: string, authToken?: string): string {
