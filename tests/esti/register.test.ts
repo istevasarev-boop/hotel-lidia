@@ -16,6 +16,7 @@ describe("ESTI registration isolation and lifecycle", () => {
     const r = transition(save(), { action: "export", revision: 1 }, reservation, now, "b1");
     expect(r.batches[0].rows[0].AccomodationRegisterUin).toBe("res_1-esti-guest_1");
     expect(r.batches[0].status).toBe("exported");
+    expect(r.batches[0].rows[0].RegistrationDate).toBe("23.10.2026 13:00");
     expect(() => transition(r, { action: "export", revision: 2 }, reservation, now, "b2")).toThrow();
     expect(() => transition(r, { action: "save", revision: 2, draft }, reservation, now, "b2")).toThrow();
   });
