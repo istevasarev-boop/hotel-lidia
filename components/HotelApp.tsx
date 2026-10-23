@@ -1,5 +1,6 @@
-﻿"use client";
+"use client";
 
+import { withDeadline } from "@/lib/deadline";
 import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import type { ButtonHTMLAttributes, FormEvent, ReactNode, TouchEvent } from "react";
 import { BarChart3, Bot, CalendarDays, Check, ChevronLeft, ChevronRight, Download, Euro, Eye, EyeOff, Bell, Home, Inbox, LockKeyhole, Mail, Mic, Phone, Plus, Search, Send, Upload, Users, Volume2, VolumeX, X } from "lucide-react";
@@ -134,13 +135,14 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   );
 });
 
-function AuthMessage({ title, text }: { title: string; text: string }) {
+function AuthMessage({ title, text, onRetry }: { title: string; text: string; onRetry?: () => void }) {
   const loading = text.includes("Проверка") || text.includes("Зареж");
   return (
     <main className="mx-auto flex min-h-screen max-w-xl items-center px-4 py-8 text-ink">
       <section className="soft-card w-full rounded-3xl p-6 text-center">
         <h1 className="text-2xl font-black">{title}</h1>
         <p className="mt-2 text-base font-semibold text-clay">{text}</p>
+        {onRetry && <button type="button" className="mt-5 rounded-2xl bg-brand-600 px-5 py-3 font-bold text-white" onClick={onRetry}>Опитай отново</button>}
         {loading && (
           <div className="mt-6 grid gap-3">
             <div className="soft-skeleton mx-auto h-4 w-3/4 rounded-full" />
@@ -209,11 +211,12 @@ async function syncSessionCookie(user: User | null): Promise<void> {
     return;
   }
 
-  const idToken = await user.getIdToken();
+  const idToken = await withDeadline(user.getIdToken(), 8000);
   const response = await fetch("/api/session", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ idToken })
+    body: JSON.stringify({ idToken }),
+    signal: AbortSignal.timeout(8000)
   });
   if (!response.ok) throw new Error(`Session sync failed: ${response.status}`);
 }
@@ -265,6 +268,7 @@ export function HotelApp({
   const [cloudAccessError, setCloudAccessError] = useState(
     initialLoadSource === "permission-denied" ? "Firebase отказа достъп до данните. Влезте отново." : ""
   );
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [cloudLoading, setCloudLoading] = useState(initialLoadSource !== "cloud");
   const [modalDraft, setModalDraft] = useState<ReservationDraft | null>(null);
   const [urlModalDismissed, setUrlModalDismissed] = useState(false);
@@ -298,7 +302,7 @@ export function HotelApp({
   useEffect(() => {
     if ("serviceWorker" in navigator) {
       if (process.env.NODE_ENV === "production") {
-        navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+        navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch(() => undefined);
       } else {
         navigator.serviceWorker.getRegistrations()
           .then((registrations) => registrations.forEach((registration) => registration.unregister()))
@@ -403,7 +407,9 @@ export function HotelApp({
     if (!user) return;
     setCloudLoading(true);
     setCloudAccessError("");
-    loadHotelData().then(({ data: loaded, source }) => {
+    let cancelled = false;
+    withDeadline(loadHotelData(), 35000).then(({ data: loaded, source }) => {
+      if (cancelled) return;
       setData(loaded);
       setSync(source === "cloud" ? "Облак: синхронизирано" : source === "local" ? "Локален backup" : "Няма данни");
       setCloudLoading(false);
@@ -413,6 +419,7 @@ export function HotelApp({
           .catch(() => undefined);
       }
     }).catch((error) => {
+      if (cancelled) return;
       console.warn("Hotel data load failed.", error);
       setCloudLoading(false);
       const message = isFirebaseDataError(error, "permission-denied")
@@ -424,7 +431,23 @@ export function HotelApp({
       setSync("Грешка при зареждане");
     });
     refreshBackups();
-  }, [user]);
+    return () => { cancelled = true; };
+  }, [user, loadAttempt]);
+
+  useEffect(() => {
+    if (!user || !cloudAccessError || cloudLoading) return;
+    const retry = () => {
+      if (document.visibilityState === "visible" && navigator.onLine) setLoadAttempt(value => value + 1);
+    };
+    window.addEventListener("online", retry);
+    window.addEventListener("pageshow", retry);
+    document.addEventListener("visibilitychange", retry);
+    return () => {
+      window.removeEventListener("online", retry);
+      window.removeEventListener("pageshow", retry);
+      document.removeEventListener("visibilitychange", retry);
+    };
+  }, [user, cloudAccessError, cloudLoading]);
 
   useEffect(() => {
     if (!user) return;
@@ -734,13 +757,14 @@ export function HotelApp({
   }
 
   if (cloudLoading) {
-    return <AuthMessage title="Hotel Lidia" text="Зареждане на Firebase данните..." />;
+    return <AuthMessage title="Hotel Lidia" text="Зареждане на Firebase данните..." onRetry={() => setLoadAttempt(value => value + 1)} />;
   }
 
   if (cloudAccessError) {
     return (
       <AuthMessage
-        title="Проблем с Firebase достъпа"
+        title="Данните не могат да бъдат заредени"
+        onRetry={() => setLoadAttempt(value => value + 1)}
         text={`${cloudAccessError} Календарът не е показан, за да не изглежда празен погрешно.`}
       />
     );
