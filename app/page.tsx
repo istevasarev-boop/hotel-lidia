@@ -18,7 +18,7 @@ export default async function Home({ searchParams }: { searchParams: SearchParam
       initialData={createEmptyData()}
       initialSyncLabel="Зареждане..."
       initialLoadSource="empty"
-      initialTab={tab === "calendar" || tab === "transactions" || tab === "finance" || tab === "enquiries" ? tab : "upcoming"}
+      initialTab={tab === "calendar" || tab === "transactions" || tab === "finance" || tab === "enquiries" || tab === "esti" ? tab : "upcoming"}
       initialProperty={property === "house" ? "house" as PropertyId : "villa"}
       initialMonth={isMonthParam(month) ? month : undefined}
       initialListFilter={isFilterParam(filter) ? filter : undefined}

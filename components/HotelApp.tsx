@@ -29,11 +29,12 @@ import { linkExistingReservation } from "@/domain/enquiries/reservationLink";
 import { convertedEnquiryIds, enquiryReceivedMonth, enquirySummary, isInternalEnquiry } from "@/domain/enquiries/reporting";
 import { EnquiryAvailabilityBadge } from "@/components/EnquiryAvailabilityBadge";
 import { EnquiryConversation } from "@/components/EnquiryConversation";
+import { EstiRegister } from "@/components/esti/EstiRegister";
 import { EstiExportModal } from "@/components/esti/EstiExportModal";
 import { MarketingView } from "@/components/MarketingView";
 import type { User } from "firebase/auth";
 
-type Tab = "upcoming" | "calendar" | "transactions" | "finance" | "enquiries";
+type Tab = "upcoming" | "calendar" | "transactions" | "finance" | "enquiries" | "esti";
 type ListFilter = "all" | "today" | "next7" | "month" | "noDeposit" | "history";
 type ReservationDraft = Omit<Reservation, "id" | "createdAt" | "updatedAt" | "status"> & { id?: string; enquiryContext?: AvailabilityRequest & { id: string } };
 type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
@@ -786,6 +787,8 @@ export function HotelApp({
         <TabButton active={tab === "enquiries"} href={`/?tab=enquiries&property=${activeProperty}`} icon={<Inbox size={18} />} label="Запитвания" onClick={() => setTab("enquiries")} badge={enquiryNewCount} />
       </section>
 
+      {ENABLE_ESTI_EXPORT && <div className="flex justify-end"><TabButton active={tab === "esti"} href={`/?tab=esti&property=${activeProperty}`} icon={<Inbox size={18} />} label="ЕСТИ · Регистър на гостите" onClick={() => setTab("esti")} /></div>}
+      {tab === "esti" && !initialDataLoading && <EstiRegister reservations={reservations} onOpen={openEstiExport} refreshKey={Boolean(estiReservation)} />}
       {initialDataLoading && <AppSectionSkeleton />}
 
       {tab === "upcoming" && !initialDataLoading && (
@@ -2405,6 +2408,7 @@ function getAssistantQuickActionGroups(currentTab: Tab): Array<{ title: string; 
     calendar: ["Свободни стаи", "Резервации", "Гости", "Финанси"],
     transactions: ["Финанси", "Резервации", "Свободни стаи", "Гости"],
     finance: ["Финанси", "Резервации", "Свободни стаи", "Гости"],
+    esti: ["Гости", "Резервации", "Свободни стаи", "Финанси"],
     enquiries: ["Резервации", "Гости", "Свободни стаи", "Финанси"]
   };
   return priorityByTab[currentTab].map((title) => ({

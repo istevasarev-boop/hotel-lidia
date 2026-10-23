@@ -92,7 +92,9 @@ describe("reservation conflict logic", () => {
       schemaVersion: 2 as const,
       reservations: { [base.id]: base },
       manualIncomes: {},
-      expenses: {}
+      expenses: {},
+      bookingOpenInventory: {},
+      bookingFeedTokens: {}
     };
 
     expect(deleteReservationById(data, base.id).reservations[base.id]).toBeUndefined();
