@@ -31,45 +31,45 @@ export function EstiGuestForm({ tourist, index, roomOptions, canRemove, onChange
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <TextField label="FirstName" value={tourist.firstName} onChange={(value) => onChange({ ...tourist, firstName: value })} />
-        <TextField label="MiddleName" value={tourist.middleName} onChange={(value) => onChange({ ...tourist, middleName: value })} />
-        <TextField label="LastName" value={tourist.lastName} onChange={(value) => onChange({ ...tourist, lastName: value })} />
+        <TextField label="Име" value={tourist.firstName} onChange={(value) => onChange({ ...tourist, firstName: value })} />
+        <TextField label="Презиме" value={tourist.middleName} onChange={(value) => onChange({ ...tourist, middleName: value })} />
+        <TextField label="Фамилия" value={tourist.lastName} onChange={(value) => onChange({ ...tourist, lastName: value })} />
       </div>
 
       <div className="mt-3 grid gap-3 sm:grid-cols-3">
-        <TextField label="BirthDate" placeholder="YYYY-MM-DD" value={tourist.birthDate} onChange={(value) => onChange({ ...tourist, birthDate: value })} />
-        <SelectField label="GenderTypeCode" value={tourist.genderTypeCode} onChange={(value) => onChange({ ...tourist, genderTypeCode: value as EstiTouristDraft["genderTypeCode"] })}>
+        <TextField label="Дата на раждане (ГГГГ-ММ-ДД)" placeholder="YYYY-MM-DD" value={tourist.birthDate} onChange={(value) => onChange({ ...tourist, birthDate: value })} />
+        <SelectField label="Пол" value={tourist.genderTypeCode} onChange={(value) => onChange({ ...tourist, genderTypeCode: value as EstiTouristDraft["genderTypeCode"] })}>
           <option value="">Избери</option>
-          <option value="M">M</option>
-          <option value="F">F</option>
+          <option value="M">Мъж</option>
+          <option value="F">Жена</option>
         </SelectField>
-        <TextField label="IdentityNumber" value={tourist.identityNumber} maxLength={10} onChange={(value) => onChange({ ...tourist, identityNumber: value })} />
+        <TextField label="ЕГН / ЛНЧ" value={tourist.identityNumber} maxLength={10} onChange={(value) => onChange({ ...tourist, identityNumber: value })} />
       </div>
 
       <div className="mt-3 grid gap-3 sm:grid-cols-3">
-        <SelectField label="IdentityDocumentTypeCode" value={tourist.identityDocumentTypeCode} onChange={(value) => onChange({ ...tourist, identityDocumentTypeCode: value as EstiTouristDraft["identityDocumentTypeCode"] })}>
+        <SelectField label="Вид документ" value={tourist.identityDocumentTypeCode} onChange={(value) => onChange({ ...tourist, identityDocumentTypeCode: value as EstiTouristDraft["identityDocumentTypeCode"] })}>
           <option value="">Избери</option>
-          <option value="ICA">ICA</option>
-          <option value="PAS">PAS</option>
-          <option value="DRL">DRL</option>
+          <option value="ICA">Лична карта</option>
+          <option value="PAS">Паспорт</option>
+          <option value="DRL">Шофьорска книжка</option>
         </SelectField>
-        <TextField label="IdentityDocumentNumber" value={tourist.identityDocumentNumber} maxLength={20} onChange={(value) => onChange({ ...tourist, identityDocumentNumber: value })} />
-        <TextField label="IdentityDocumentCountryCode" value={tourist.identityDocumentCountryCode} maxLength={2} onChange={(value) => onChange({ ...tourist, identityDocumentCountryCode: value.toUpperCase() })} />
+        <TextField label="Номер на документа" value={tourist.identityDocumentNumber} maxLength={20} onChange={(value) => onChange({ ...tourist, identityDocumentNumber: value })} />
+        <TextField label="Държава на документа (BG, DE…)" value={tourist.identityDocumentCountryCode} maxLength={2} onChange={(value) => onChange({ ...tourist, identityDocumentCountryCode: value.toUpperCase() })} />
       </div>
 
       <div className="mt-3 grid gap-3 sm:grid-cols-4">
-        <SelectField label="Room" value={tourist.room} onChange={(value) => onChange({ ...tourist, room: value })}>
+        <SelectField label="Стая" value={tourist.room} onChange={(value) => onChange({ ...tourist, room: value })}>
           <option value="">Избери стая</option>
           {roomOptions.map((room) => (
             <option key={room} value={room}>Стая {room}</option>
           ))}
         </SelectField>
-        <TextField label="Floor" value={tourist.floor} onChange={(value) => onChange({ ...tourist, floor: value })} />
-        <SelectField label="TouristPackage" value={tourist.touristPackage} onChange={(value) => onChange({ ...tourist, touristPackage: value as EstiTouristDraft["touristPackage"] })}>
+        <TextField label="Етаж" value={tourist.floor} onChange={(value) => onChange({ ...tourist, floor: value })} />
+        <SelectField label="Туристически пакет" value={tourist.touristPackage} onChange={(value) => onChange({ ...tourist, touristPackage: value as EstiTouristDraft["touristPackage"] })}>
           <option value="FALSE">FALSE</option>
           <option value="TRUE">TRUE</option>
         </SelectField>
-        <TextField label="AvgNightPrice" inputMode="decimal" value={tourist.avgNightPrice} onChange={(value) => onChange({ ...tourist, avgNightPrice: value })} />
+        <TextField label="Средна цена на нощувка" inputMode="decimal" value={tourist.avgNightPrice} onChange={(value) => onChange({ ...tourist, avgNightPrice: value })} />
       </div>
     </section>
   );

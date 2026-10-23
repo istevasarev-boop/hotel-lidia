@@ -1,12 +1,14 @@
 "use client";
 
 import { Plus, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { eachNight } from "@/domain/reservations/dateRange";
 import { PROPERTIES, type Reservation } from "@/domain/reservations/types";
-import { buildEstiCsvRows, makeEstiFilename, serializeEstiCsv } from "@/lib/esti/csv";
+import { buildEstiCsvRows } from "@/lib/esti/csv";
 import { ESTI_CSV_HEADERS, type EstiExportDraft, type EstiTouristDraft } from "@/lib/esti/types";
 import { getAllowedRooms, type EstiValidationError, validateEstiExport } from "@/lib/esti/validation";
+import { estiRequest, downloadBatch } from "@/lib/esti/client";
+import { isLocked, type EstiRecord } from "@/lib/esti/register";
 import { EstiGuestForm } from "./EstiGuestForm";
 
 type EstiExportModalProps = {
@@ -15,6 +17,40 @@ type EstiExportModalProps = {
 };
 
 export function EstiExportModal({ reservation, onClose }: EstiExportModalProps) {
+  const [record, setRecord] = useState<EstiRecord | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [dirty, setDirty] = useState(false);
+  const locked = isLocked(record);
+  useEffect(() => {
+    let cancelled = false;
+    estiRequest().then(result => {
+      if (cancelled) return;
+      const saved = result.records[reservation.id];
+      if (saved) { setRecord(saved); setDraft(saved.draft); if (isLocked(saved)) setStep(2); }
+      else {
+        const defaults = Object.values(result.records).filter(r => r.propertyId === reservation.propertyId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+        if (defaults) setDraft(current => ({ ...current, accomodationPlaceUin: defaults.draft.accomodationPlaceUin }));
+      }
+      setLoaded(true);
+    }).catch(error => { if (!cancelled) setMessage(error.message); });
+    return () => { cancelled = true; };
+  }, [reservation.id, reservation.propertyId]);
+  async function persist() {
+    if (busy || !loaded || locked) return;
+    setBusy(true); setMessage("");
+    try {
+      const result = await estiRequest({ reservationId: reservation.id, action: "save", revision: record?.revision || 0, draft });
+      setRecord(result.record); setDirty(false); setMessage("Гостите са запазени. Можеш да продължиш по-късно.");
+      return result.record;
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Неуспешен запис."); }
+    finally { setBusy(false); }
+  }
+  function close() {
+    if (busy) return;
+    if (!dirty || window.confirm("Има незапазени промени по гостите. Да затворя без запазване?")) onClose();
+  }
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [previewGeneratedAt, setPreviewGeneratedAt] = useState<Date | null>(null);
   const roomOptions = useMemo(() => getAllowedRooms(reservation), [reservation]);
@@ -27,6 +63,7 @@ export function EstiExportModal({ reservation, onClose }: EstiExportModalProps) 
   const property = PROPERTIES.find((item) => item.id === reservation.propertyId);
 
   function updateTourist(index: number, tourist: EstiTouristDraft) {
+    setDirty(true);
     setDraft((current) => ({
       ...current,
       tourists: current.tourists.map((item, itemIndex) => itemIndex === index ? tourist : item)
@@ -34,6 +71,7 @@ export function EstiExportModal({ reservation, onClose }: EstiExportModalProps) 
   }
 
   function addTourist() {
+    setDirty(true);
     setDraft((current) => ({
       ...current,
       tourists: [...current.tourists, createTouristDraft(reservation, roomOptions, current.tourists.length)]
@@ -42,6 +80,7 @@ export function EstiExportModal({ reservation, onClose }: EstiExportModalProps) 
   }
 
   function removeTourist(index: number) {
+    setDirty(true);
     setDraft((current) => ({
       ...current,
       tourists: current.tourists.filter((_, itemIndex) => itemIndex !== index)
@@ -55,17 +94,18 @@ export function EstiExportModal({ reservation, onClose }: EstiExportModalProps) 
     setStep(3);
   }
 
-  function downloadCsv() {
-    const nextErrors = validateEstiExport(reservation, draft);
-    if (nextErrors.length > 0) return;
-    const rows = buildEstiCsvRows(reservation, draft, previewGeneratedAt || new Date());
-    const blob = new Blob([serializeEstiCsv(rows)], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = makeEstiFilename(reservation);
-    link.click();
-    URL.revokeObjectURL(url);
+  async function downloadCsv() {
+    if (busy || !loaded || locked || errors.length) return;
+    setBusy(true); setMessage("");
+    try {
+      const saved = await estiRequest({ reservationId: reservation.id, action: "save", revision: record?.revision || 0, draft });
+      setRecord(saved.record); setDirty(false);
+      const result = await estiRequest({ reservationId: reservation.id, action: "export", revision: saved.record.revision });
+      setRecord(result.record);
+      downloadBatch(result.record.batches[result.record.batches.length - 1], reservation.propertyId);
+      setMessage("Файлът е подготвен. Качи го в ЕСТИ и отбележи резултата в меню ЕСТИ → История.");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Неуспешен експорт."); }
+    finally { setBusy(false); }
   }
 
   return (
@@ -73,22 +113,27 @@ export function EstiExportModal({ reservation, onClose }: EstiExportModalProps) 
       <div className="max-h-[92vh] w-full max-w-5xl overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl">
         <header className="flex items-start justify-between gap-3 border-b border-stone-200 p-4 sm:p-5">
           <div>
-            <p className="text-xs font-black uppercase tracking-wide text-clay">CSV export</p>
+            <p className="text-xs font-black uppercase tracking-wide text-clay">Регистър на гостите</p>
             <h3 id="esti-export-title" className="text-2xl font-black text-ink">ЕСТИ</h3>
             <p className="mt-1 text-sm font-semibold text-clay">
               {property?.name || reservation.propertyId} · {reservation.checkin} - {reservation.checkout} · {reservation.guestName || "Без име"}
             </p>
           </div>
-          <button type="button" className="tap-target inline-flex h-11 w-11 items-center justify-center rounded-full border border-stone-200 bg-cream text-clay shadow-sm" onClick={onClose} aria-label="Затвори">
+          <button type="button" className="tap-target inline-flex h-11 w-11 items-center justify-center rounded-full border border-stone-200 bg-cream text-clay shadow-sm" onClick={close} aria-label="Затвори">
             <X size={18} />
           </button>
         </header>
 
         <div className="max-h-[calc(92vh-84px)] overflow-y-auto p-4 sm:p-5">
+          {message && <p role="status" className="mb-3 rounded-xl bg-amber-50 p-3 text-ink">{message}</p>}
+          {!loaded && <p>Зареждане на запазените гости… При грешка затвори и отвори отново.</p>}
+          {locked && <p className="mb-3 rounded-xl bg-brand-50 p-3">Има изтеглен или приет файл. Данните са само за преглед. Отбележи резултата в ЕСТИ → История.</p>}
+          <fieldset disabled={!loaded || busy || locked} onChange={() => setDirty(true)}>
+          <button type="button" className="mb-4 rounded-xl bg-brand-600 px-4 py-3 font-bold text-white disabled:opacity-50" onClick={persist}> {busy ? "Запазване…" : "Запази гостите за по-късно"} </button>
           <div className="mb-4 grid gap-2 text-sm font-black text-clay sm:grid-cols-3">
             <StepPill active={step === 1} complete={step > 1} label="1. Данни за престой" />
             <StepPill active={step === 2} complete={step > 2} label="2. Туристи" />
-            <StepPill active={step === 3} complete={false} label="3. Preview" />
+            <StepPill active={step === 3} complete={false} label="3. Проверка и файл" />
           </div>
 
           <p className="mb-4 rounded-2xl border border-amber-100 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-900">
@@ -115,7 +160,7 @@ export function EstiExportModal({ reservation, onClose }: EstiExportModalProps) 
                 )}
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
                   <label className="block text-sm font-black text-clay">
-                    Check-in time
+                    Час на настаняване
                     <input
                       className="tap-target mt-1 w-full rounded-2xl border border-stone-200 bg-white px-3 py-2 text-base font-bold text-ink outline-none focus:ring-2 focus:ring-brand-100"
                       type="time"
@@ -124,7 +169,7 @@ export function EstiExportModal({ reservation, onClose }: EstiExportModalProps) 
                     />
                   </label>
                   <label className="block text-sm font-black text-clay">
-                    Check-out time
+                    Час на напускане
                     <input
                       className="tap-target mt-1 w-full rounded-2xl border border-stone-200 bg-white px-3 py-2 text-base font-bold text-ink outline-none focus:ring-2 focus:ring-brand-100"
                       type="time"
@@ -134,7 +179,7 @@ export function EstiExportModal({ reservation, onClose }: EstiExportModalProps) 
                   </label>
                 </div>
               </div>
-              <FooterActions onClose={onClose} primaryLabel="Към туристи" onPrimary={() => setStep(2)} />
+              <FooterActions onClose={close} primaryLabel="Към туристи" onPrimary={() => setStep(2)} />
             </section>
           )}
 
@@ -142,7 +187,7 @@ export function EstiExportModal({ reservation, onClose }: EstiExportModalProps) 
             <section className="grid gap-3">
               {suggestedNightPrice && (
                 <p className="rounded-2xl bg-brand-50 px-3 py-2 text-sm font-bold text-brand-900">
-                  Ориентир: обща сума / нощувки = {suggestedNightPrice}. Полето AvgNightPrice остава ръчно editable.
+                  Ориентир: обща сума / нощувки = {suggestedNightPrice}. Провери средната цена за конкретния гост.
                 </p>
               )}
               {reservation.rooms.includes("all") && (
@@ -165,14 +210,15 @@ export function EstiExportModal({ reservation, onClose }: EstiExportModalProps) 
                 <Plus size={17} /> Добави турист
               </button>
               <ValidationErrors errors={errors} />
-              <FooterActions onClose={onClose} secondaryLabel="Назад" onSecondary={() => setStep(1)} primaryLabel="Preview" onPrimary={goToPreview} disabled={errors.length > 0} />
+              <FooterActions onClose={close} secondaryLabel="Назад" onSecondary={() => setStep(1)} primaryLabel="Провери за ЕСТИ" onPrimary={goToPreview} disabled={errors.length > 0} />
             </section>
           )}
 
           {step === 3 && (
             <section className="grid gap-4">
               <ValidationErrors errors={errors} />
-              <div className="overflow-x-auto rounded-3xl border border-stone-200 bg-cream">
+              <div className="rounded-2xl bg-brand-50 p-4"><strong>{draft.tourists.length} гости · {reservation.checkin} → {reservation.checkout}</strong><p>Обект: {draft.accomodationPlaceUin}. След изтеглянето качи CSV файла в ЕСТИ за този обект.</p>{draft.tourists.map(t => <p key={t.id}>{t.firstName} {t.lastName} · Стая {t.room}</p>)}</div>
+              <details><summary className="cursor-pointer p-3 font-bold">Технически преглед на файла</summary><div className="overflow-x-auto rounded-3xl border border-stone-200 bg-cream">
                 <table className="min-w-[1200px] text-left text-xs font-bold text-stone-700">
                   <thead className="bg-white text-[10px] uppercase text-clay">
                     <tr>
@@ -187,11 +233,11 @@ export function EstiExportModal({ reservation, onClose }: EstiExportModalProps) 
                     ))}
                   </tbody>
                 </table>
-              </div>
-              <FooterActions onClose={onClose} secondaryLabel="Назад" onSecondary={() => setStep(2)} primaryLabel="Изтегли CSV за ЕСТИ" onPrimary={downloadCsv} disabled={errors.length > 0} />
+              </div></details>
+              <FooterActions onClose={close} secondaryLabel="Назад" onSecondary={() => setStep(2)} primaryLabel="Изтегли CSV за ЕСТИ" onPrimary={downloadCsv} disabled={errors.length > 0} />
             </section>
           )}
-        </div>
+        </fieldset></div>
       </div>
     </div>
   );
@@ -222,7 +268,7 @@ function ValidationErrors({ errors }: { errors: EstiValidationError[] }) {
   if (!errors.length) return null;
   return (
     <div className="rounded-2xl border border-rose-100 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-800">
-      <p className="font-black">Провери преди export:</p>
+      <p className="font-black">Провери преди изтегляне:</p>
       <ul className="mt-1 list-disc space-y-1 pl-5">
         {errors.slice(0, 8).map((error) => <li key={`${error.field}-${error.message}`}>{error.message}</li>)}
       </ul>
