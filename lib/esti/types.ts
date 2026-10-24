@@ -45,6 +45,7 @@ export type EstiTouristDraft = {
 };
 
 export type EstiExportDraft = {
+  propertyId?: PropertyId;
   accomodationPlaceUin: string;
   checkInTime: string;
   checkOutTime: string;

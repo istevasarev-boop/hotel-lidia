@@ -9,6 +9,7 @@ import { ESTI_CSV_HEADERS, type EstiExportDraft, type EstiTouristDraft } from "@
 import { getAllowedRooms, type EstiValidationError, validateEstiExport } from "@/lib/esti/validation";
 import { estiRequest, downloadBatch } from "@/lib/esti/client";
 import { isLocked, type EstiRecord } from "@/lib/esti/register";
+import { applyEstiDefaults, estiReservation, isEstiProperty } from "@/lib/esti/defaults";
 import { EstiGuestForm } from "./EstiGuestForm";
 
 type EstiExportModalProps = {
@@ -28,11 +29,7 @@ export function EstiExportModal({ reservation, onClose }: EstiExportModalProps) 
     estiRequest().then(result => {
       if (cancelled) return;
       const saved = result.records[reservation.id];
-      if (saved) { setRecord(saved); setDraft(saved.draft); if (isLocked(saved)) setStep(2); }
-      else {
-        const defaults = Object.values(result.records).filter(r => r.propertyId === reservation.propertyId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
-        if (defaults) setDraft(current => ({ ...current, accomodationPlaceUin: defaults.draft.accomodationPlaceUin }));
-      }
+      if (saved) { setRecord(saved); setDraft(isLocked(saved) ? saved.draft : applyEstiDefaults(reservation, saved.draft)); if (isLocked(saved)) setStep(2); }
       setLoaded(true);
     }).catch(error => { if (!cancelled) setMessage(error.message); });
     return () => { cancelled = true; };
@@ -51,16 +48,16 @@ export function EstiExportModal({ reservation, onClose }: EstiExportModalProps) 
     if (busy) return;
     if (!dirty || window.confirm("Има незапазени промени по гостите. Да затворя без запазване?")) onClose();
   }
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [step, setStep] = useState<1 | 2 | 3>(() => isEstiProperty(reservation.propertyId) ? 2 : 1);
   const [previewGeneratedAt, setPreviewGeneratedAt] = useState<Date | null>(null);
-  const roomOptions = useMemo(() => getAllowedRooms(reservation), [reservation]);
-  const [draft, setDraft] = useState<EstiExportDraft>(() => createInitialDraft(reservation, roomOptions));
-  const errors = useMemo(() => validateEstiExport(reservation, draft), [draft, reservation]);
-  const accomodationPlaceUinError = errors.find((error) => error.field === "accomodationPlaceUin");
-  const previewRows = useMemo(() => buildEstiCsvRows(reservation, draft, previewGeneratedAt || new Date()), [draft, previewGeneratedAt, reservation]);
+  const [draft, setDraft] = useState<EstiExportDraft>(() => createInitialDraft(reservation, getAllowedRooms(reservation)));
+  const effectiveReservation = useMemo(() => estiReservation(reservation, draft), [reservation, draft]);
+  const roomOptions = useMemo(() => getAllowedRooms(effectiveReservation), [effectiveReservation]);
+  const errors = useMemo(() => validateEstiExport(effectiveReservation, draft), [draft, effectiveReservation]);
+  const previewRows = useMemo(() => buildEstiCsvRows(effectiveReservation, draft, previewGeneratedAt || new Date()), [draft, previewGeneratedAt, effectiveReservation]);
   const nights = Math.max(1, eachNight(reservation.checkin, reservation.checkout).length);
   const suggestedNightPrice = reservation.totalAmount > 0 ? (reservation.totalAmount / nights).toFixed(2) : "";
-  const property = PROPERTIES.find((item) => item.id === reservation.propertyId);
+  const property = PROPERTIES.find((item) => item.id === effectiveReservation.propertyId);
 
   function updateTourist(index: number, tourist: EstiTouristDraft) {
     setDirty(true);
@@ -88,7 +85,7 @@ export function EstiExportModal({ reservation, onClose }: EstiExportModalProps) 
   }
 
   function goToPreview() {
-    const nextErrors = validateEstiExport(reservation, draft);
+    const nextErrors = validateEstiExport(effectiveReservation, draft);
     if (nextErrors.length > 0) return;
     setPreviewGeneratedAt(new Date());
     setStep(3);
@@ -143,21 +140,20 @@ export function EstiExportModal({ reservation, onClose }: EstiExportModalProps) 
           {step === 1 && (
             <section className="grid gap-4">
               <div className="rounded-3xl border border-stone-200 bg-cream p-4">
-                <label className="block text-sm font-black text-clay">
-                  ЕСТИ / НТР номер на мястото за настаняване
-                  <input
-                    className={`tap-target mt-1 w-full rounded-2xl border bg-white px-3 py-2 text-base font-bold text-ink outline-none focus:ring-2 ${accomodationPlaceUinError ? "border-rose-300 focus:ring-rose-100" : "border-stone-200 focus:ring-brand-100"}`}
-                    value={draft.accomodationPlaceUin}
-                    onChange={(event) => setDraft({ ...draft, accomodationPlaceUin: event.target.value })}
-                    autoComplete="off"
-                  />
-                </label>
-                <p className="mt-2 text-xs font-semibold text-clay">
-                  Използвайте уникалния номер на мястото за настаняване, регистриран в ЕСТИ/Националния туристически регистър.
-                </p>
-                {accomodationPlaceUinError && (
-                  <p className="mt-2 text-sm font-bold text-rose-700">{accomodationPlaceUinError.message}</p>
-                )}
+                {!isEstiProperty(reservation.propertyId) ? (
+                  <label className="block text-sm font-black text-clay">Обект
+                    <select className="tap-target mt-1 w-full rounded-2xl border border-stone-200 bg-white px-3 py-2" value={draft.propertyId || ""}
+                      onChange={event => {
+                        const propertyId = event.target.value;
+                        if (!isEstiProperty(propertyId)) return;
+                        setDraft(current => applyEstiDefaults(reservation, { ...current, propertyId, tourists: current.tourists.map(t => ({ ...t, room: "" })) }));
+                      }}>
+                      <option value="" disabled>Избери обект</option>
+                      <option value="house">Къщата</option><option value="villa">Вилата</option>
+                    </select>
+                  </label>
+                ) : <p className="font-bold">{property?.name}</p>}
+                <p className="mt-2 text-sm text-clay">{draft.accomodationPlaceUin ? `ЕСТИ / НТР: ${draft.accomodationPlaceUin} · попълнен автоматично` : "Избери обекта, за който регистрираш гостите."}</p>
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
                   <label className="block text-sm font-black text-clay">
                     Час на настаняване
@@ -179,7 +175,7 @@ export function EstiExportModal({ reservation, onClose }: EstiExportModalProps) 
                   </label>
                 </div>
               </div>
-              <FooterActions onClose={close} primaryLabel="Към туристи" onPrimary={() => setStep(2)} />
+              <FooterActions onClose={close} primaryLabel="Към туристи" onPrimary={() => setStep(2)} disabled={!draft.accomodationPlaceUin} />
             </section>
           )}
 
@@ -279,12 +275,12 @@ function ValidationErrors({ errors }: { errors: EstiValidationError[] }) {
 
 function createInitialDraft(reservation: Reservation, roomOptions: string[]): EstiExportDraft {
   const roomsAreWholeProperty = reservation.rooms.includes("all");
-  return {
+  return applyEstiDefaults(reservation, {
     accomodationPlaceUin: "",
     checkInTime: "14:00",
     checkOutTime: "12:00",
     tourists: [createTouristDraft(reservation, roomOptions, 0, !roomsAreWholeProperty)]
-  };
+  });
 }
 
 function createTouristDraft(reservation: Reservation, roomOptions: string[], index: number, preselectRoom = true): EstiTouristDraft {

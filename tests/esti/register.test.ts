@@ -9,7 +9,7 @@ const now = "2026-10-23T10:00:00Z";
 const save = () => transition(null, { action: "save", revision: 0, draft }, reservation, now, "unused");
 describe("ESTI registration isolation and lifecycle", () => {
   it("saves incomplete drafts, but blocks export", () => {
-    const r = transition(null, { action: "save", revision: 0, draft: { ...draft, accomodationPlaceUin: "" } }, reservation, now, "unused");
+    const r = transition(null, { action: "save", revision: 0, draft: { ...draft, tourists: [] } }, reservation, now, "unused");
     expect(() => transition(r, { action: "export", revision: 1 }, reservation, now, "b1")).toThrow();
   });
   it("retains guest identity and prevents duplicate export or editing after export", () => {

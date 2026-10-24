@@ -18,12 +18,15 @@ describe("guest editor workflow", () => {
     const before = JSON.stringify(reservation);
     const first = render(<EstiExportModal reservation={reservation} onClose={() => undefined} />);
     await waitFor(() => expect((screen.getByText("Запази гостите за по-късно") as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.change(screen.getByLabelText("ЕСТИ / НТР номер на мястото за настаняване"), { target: { value: "BG-TEST" } });
+    fireEvent.click(screen.getByText("Назад"));
+    fireEvent.change(screen.getByLabelText("Час на настаняване"), { target: { value: "15:30" } });
     fireEvent.click(screen.getByText("Запази гостите за по-късно"));
     await screen.findByText("Гостите са запазени. Можеш да продължиш по-късно.");
     first.unmount();
     render(<EstiExportModal reservation={reservation} onClose={() => undefined} />);
-    await waitFor(() => expect((screen.getByLabelText("ЕСТИ / НТР номер на мястото за настаняване") as HTMLInputElement).value).toBe("BG-TEST"));
+    await waitFor(() => expect((screen.getByText("Запази гостите за по-късно") as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByText("Назад"));
+    await waitFor(() => expect((screen.getByLabelText("Час на настаняване") as HTMLInputElement).value).toBe("15:30"));
     expect(JSON.stringify(reservation)).toBe(before);
   });
   it("shows storage failure and keeps writes disabled", async () => {

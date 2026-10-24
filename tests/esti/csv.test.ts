@@ -51,12 +51,12 @@ describe("ESTI CSV export", () => {
   it("validates AccomodationPlaceUin basic required identifier rules", () => {
     expect(isValidAccomodationPlaceUin("")).toBe(false);
     expect(isValidAccomodationPlaceUin("   ")).toBe(false);
-    expect(isValidAccomodationPlaceUin("фг")).toBe(false);
+    expect(isValidAccomodationPlaceUin("invalid value")).toBe(false);
     expect(isValidAccomodationPlaceUin("BG-ESTI-TEST-1")).toBe(true);
   });
 
   it("blocks CSV generation when AccomodationPlaceUin is invalid", () => {
-    expect(canGenerateEstiCsv(baseReservation, validDraft({ accomodationPlaceUin: "фг" }))).toBe(false);
+    expect(canGenerateEstiCsv(baseReservation, validDraft({ accomodationPlaceUin: "invalid value" }))).toBe(false);
   });
 
   it("allows CSV generation when AccomodationPlaceUin is valid", () => {

@@ -43,8 +43,7 @@ export function isValidAccomodationPlaceUin(value: string): boolean {
   const normalized = value.trim();
   if (!normalized) return false;
   if (/\s/.test(normalized)) return false;
-  if (/[\u0400-\u04FF]/.test(normalized)) return false;
-  return /^[A-Za-z0-9._/-]+$/.test(normalized);
+  return /^[A-Za-zА-Яа-я0-9._/-]+$/.test(normalized);
 }
 
 function validateTourist(reservation: Reservation, tourist: EstiTouristDraft, index: number, errors: EstiValidationError[]): void {
