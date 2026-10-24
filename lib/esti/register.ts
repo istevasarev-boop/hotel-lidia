@@ -40,7 +40,7 @@ export function isDraft(value: unknown): value is EstiExportDraft {
   if (d.propertyId !== undefined && !isEstiProperty(d.propertyId)) return false;
   if (![d.accomodationPlaceUin, d.checkInTime, d.checkOutTime].every(v => typeof v === "string" && v.length <= 500) || !Array.isArray(d.tourists) || d.tourists.length > 100) return false;
   const keys = ["id", "firstName", "middleName", "lastName", "birthDate", "genderTypeCode", "identityNumber", "identityDocumentTypeCode", "identityDocumentNumber", "identityDocumentCountryCode", "floor", "room", "touristPackage", "avgNightPrice"] as const;
-  return d.tourists.every(t => t && keys.every(k => typeof t[k] === "string" && t[k].length <= 500) && /^[a-zA-Z0-9_-]{1,100}$/.test(t.id)) && new Set(d.tourists.map(t => t.id)).size === d.tourists.length;
+  return d.tourists.every(t => t && (t.identificationMode === undefined || ["egn", "birthDate"].includes(t.identificationMode)) && keys.every(k => typeof t[k] === "string" && t[k].length <= 500) && /^[a-zA-Z0-9_-]{1,100}$/.test(t.id)) && new Set(d.tourists.map(t => t.id)).size === d.tourists.length;
 }
 
 function sofiaRegistrationDate(iso: string): string {

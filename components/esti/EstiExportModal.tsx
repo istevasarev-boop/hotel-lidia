@@ -2,7 +2,6 @@
 
 import { Plus, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { eachNight } from "@/domain/reservations/dateRange";
 import { PROPERTIES, type Reservation } from "@/domain/reservations/types";
 import { buildEstiCsvRows } from "@/lib/esti/csv";
 import { ESTI_CSV_HEADERS, type EstiExportDraft, type EstiTouristDraft } from "@/lib/esti/types";
@@ -55,8 +54,6 @@ export function EstiExportModal({ reservation, onClose }: EstiExportModalProps) 
   const roomOptions = useMemo(() => getAllowedRooms(effectiveReservation), [effectiveReservation]);
   const errors = useMemo(() => validateEstiExport(effectiveReservation, draft), [draft, effectiveReservation]);
   const previewRows = useMemo(() => buildEstiCsvRows(effectiveReservation, draft, previewGeneratedAt || new Date()), [draft, previewGeneratedAt, effectiveReservation]);
-  const nights = Math.max(1, eachNight(reservation.checkin, reservation.checkout).length);
-  const suggestedNightPrice = reservation.totalAmount > 0 ? (reservation.totalAmount / nights).toFixed(2) : "";
   const property = PROPERTIES.find((item) => item.id === effectiveReservation.propertyId);
 
   function updateTourist(index: number, tourist: EstiTouristDraft) {
@@ -181,16 +178,6 @@ export function EstiExportModal({ reservation, onClose }: EstiExportModalProps) 
 
           {step === 2 && (
             <section className="grid gap-3">
-              {suggestedNightPrice && (
-                <p className="rounded-2xl bg-brand-50 px-3 py-2 text-sm font-bold text-brand-900">
-                  Ориентир: обща сума / нощувки = {suggestedNightPrice}. Провери средната цена за конкретния гост.
-                </p>
-              )}
-              {reservation.rooms.includes("all") && (
-                <p className="rounded-2xl border border-amber-100 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-900">
-                  Резервацията е за цял обект. Избери конкретна физическа стая за всеки турист.
-                </p>
-              )}
               {draft.tourists.map((tourist, index) => (
                 <EstiGuestForm
                   key={tourist.id}
@@ -285,8 +272,7 @@ function createInitialDraft(reservation: Reservation, roomOptions: string[]): Es
 
 function createTouristDraft(reservation: Reservation, roomOptions: string[], index: number, preselectRoom = true): EstiTouristDraft {
   const names = splitGuestName(index === 0 ? reservation.guestName : "");
-  const nights = Math.max(1, eachNight(reservation.checkin, reservation.checkout).length);
-  const suggestedNightPrice = reservation.totalAmount > 0 ? (reservation.totalAmount / nights).toFixed(2) : "";
+
   return {
     id: `${Date.now()}-${index}-${Math.random().toString(36).slice(2)}`,
     firstName: names.firstName,
@@ -301,7 +287,7 @@ function createTouristDraft(reservation: Reservation, roomOptions: string[], ind
     floor: "",
     room: preselectRoom ? roomOptions[0] || "" : "",
     touristPackage: "FALSE",
-    avgNightPrice: suggestedNightPrice
+    avgNightPrice: ""
   };
 }
 
