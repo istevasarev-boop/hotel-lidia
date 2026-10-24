@@ -292,7 +292,12 @@ function createTouristDraft(reservation: Reservation, roomOptions: string[], ind
 }
 
 function splitGuestName(value: string): { firstName: string; middleName: string; lastName: string } {
-  const parts = value.trim().split(/\s+/).filter(Boolean);
+  // Ignore trailing reservation annotations such as amounts or phone numbers.
+  const parts: string[] = [];
+  for (const token of value.trim().split(/\s+/).filter(Boolean)) {
+    if (!/^[\p{L}\p{M}]+(?:[-’'][\p{L}\p{M}]+)*$/u.test(token)) break;
+    parts.push(token);
+  }
   if (parts.length <= 1) return { firstName: parts[0] || "", middleName: "", lastName: "" };
   if (parts.length === 2) return { firstName: parts[0], middleName: "", lastName: parts[1] };
   return { firstName: parts[0], middleName: parts.slice(1, -1).join(" "), lastName: parts[parts.length - 1] };
