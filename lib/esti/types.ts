@@ -28,6 +28,7 @@ export type EstiIdentityDocumentTypeCode = "ICA" | "PAS" | "DRL" | "";
 export type EstiTouristPackage = "TRUE" | "FALSE";
 
 export type EstiTouristDraft = {
+  identificationMode?: "egn" | "birthDate";
   id: string;
   firstName: string;
   middleName: string;

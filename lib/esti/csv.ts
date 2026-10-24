@@ -1,3 +1,4 @@
+import { identityMode, parseEgn } from "./identity";
 import type { Reservation } from "@/domain/reservations/types";
 import { ESTI_CSV_HEADERS, type EstiCsvRow, type EstiExportDraft } from "./types";
 
@@ -6,12 +7,12 @@ export function buildEstiCsvRows(reservation: Reservation, draft: EstiExportDraf
     AccomodationPlaceUin: draft.accomodationPlaceUin.trim(),
     AccomodationRegisterUin: buildAccomodationRegisterUin(reservation.id, index),
     RegistrationDate: formatEstiDateTimeFromDate(registrationDate),
-    IdentityNumber: tourist.identityNumber.trim(),
+    IdentityNumber: identityMode(tourist) === "egn" ? tourist.identityNumber.trim() : "",
     FirstName: tourist.firstName.trim(),
     MiddleName: tourist.middleName.trim(),
     LastName: tourist.lastName.trim(),
-    BirthDate: formatEstiDate(tourist.birthDate),
-    GenderTypeCode: tourist.genderTypeCode,
+    BirthDate: formatEstiDate(identityMode(tourist) === "egn" ? parseEgn(tourist.identityNumber.trim())?.birthDate || "" : tourist.birthDate),
+    GenderTypeCode: identityMode(tourist) === "egn" ? parseEgn(tourist.identityNumber.trim())?.gender || "" : tourist.genderTypeCode,
     IdentityDocumentTypeCode: tourist.identityDocumentTypeCode,
     IdentityDocumentNumber: tourist.identityDocumentNumber.trim(),
     IdentityDocumentCountryCode: tourist.identityDocumentCountryCode.trim().toUpperCase(),
@@ -20,7 +21,7 @@ export function buildEstiCsvRows(reservation: Reservation, draft: EstiExportDraf
     CheckInDate: formatEstiDateTime(reservation.checkin, draft.checkInTime),
     CheckOutDate: formatEstiDateTime(reservation.checkout, draft.checkOutTime),
     TouristPackage: tourist.touristPackage,
-    AvgNightPrice: formatEstiMoney(tourist.avgNightPrice),
+    AvgNightPrice: "",
     RegistrationTypeCode: "NEW"
   }));
 }

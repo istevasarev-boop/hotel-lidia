@@ -28,6 +28,7 @@ function validDraft(partial?: Partial<EstiExportDraft>): EstiExportDraft {
     tourists: [
       {
         id: "t1",
+        identificationMode: "birthDate",
         firstName: "Иван",
         middleName: "Георгиев",
         lastName: "Петров",
@@ -86,7 +87,8 @@ describe("ESTI CSV export", () => {
     const reservation = { ...baseReservation, rooms: ["5", "7"] };
     const rows = buildEstiCsvRows(reservation, validDraft({
       tourists: [
-        { ...validDraft().tourists[0], id: "t1", room: "5" },
+        { ...validDraft().tourists[0], id: "t1",
+        identificationMode: "birthDate", room: "5" },
         { ...validDraft().tourists[0], id: "t2", firstName: "Мария", lastName: "Петрова", room: "7" }
       ]
     }));
@@ -135,8 +137,8 @@ describe("ESTI CSV export", () => {
     expect(errors.some((error) => error.field.includes("lastName"))).toBe(true);
     expect(errors.some((error) => error.field.includes("birthDate"))).toBe(true);
     expect(errors.some((error) => error.field.includes("genderTypeCode"))).toBe(true);
-    expect(errors.some((error) => error.field.includes("identityDocumentCountryCode"))).toBe(true);
-    expect(errors.some((error) => error.field.includes("room"))).toBe(true);
+    expect(errors.some((error) => error.field.includes("country"))).toBe(true);
+    expect(errors.some((error) => error.field.includes("room"))).toBe(false);
   });
 
   it("formats ESTI dates correctly", () => {

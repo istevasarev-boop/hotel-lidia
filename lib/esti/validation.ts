@@ -1,5 +1,6 @@
 import { PROPERTIES, type Reservation } from "@/domain/reservations/types";
-import { formatEstiMoney, isISODate, isTime } from "./csv";
+import { isISODate, isTime } from "./csv";
+import { identityMode, parseEgn } from "./identity";
 import type { EstiExportDraft, EstiTouristDraft } from "./types";
 
 export type EstiValidationError = {
@@ -50,50 +51,29 @@ function validateTourist(reservation: Reservation, tourist: EstiTouristDraft, in
   const label = `Турист ${index + 1}`;
   if (!tourist.firstName.trim()) errors.push({ field: `tourists.${index}.firstName`, message: `${label}: попълни име.` });
   if (!tourist.lastName.trim()) errors.push({ field: `tourists.${index}.lastName`, message: `${label}: попълни фамилия.` });
-  if (!isISODate(tourist.birthDate)) errors.push({ field: `tourists.${index}.birthDate`, message: `${label}: попълни валидна дата на раждане.` });
-  if (tourist.genderTypeCode !== "M" && tourist.genderTypeCode !== "F") {
-    errors.push({ field: `tourists.${index}.genderTypeCode`, message: `${label}: избери пол M или F.` });
+  if (identityMode(tourist) === "egn") {
+    if (!parseEgn(tourist.identityNumber.trim())) errors.push({ field: `tourists.${index}.identityNumber`, message: `${label}: попълни валидно ЕГН.` });
+  } else {
+    if (!isISODate(tourist.birthDate) || tourist.birthDate > new Date().toISOString().slice(0, 10)) errors.push({ field: `tourists.${index}.birthDate`, message: `${label}: попълни валидна дата на раждане.` });
+    if (tourist.genderTypeCode !== "M" && tourist.genderTypeCode !== "F") errors.push({ field: `tourists.${index}.genderTypeCode`, message: `${label}: избери пол.` });
   }
-  if (!["ICA", "PAS", "DRL"].includes(tourist.identityDocumentTypeCode)) {
-    errors.push({ field: `tourists.${index}.identityDocumentTypeCode`, message: `${label}: избери тип документ ICA, PAS или DRL.` });
-  }
-  const country = tourist.identityDocumentCountryCode.trim();
-  if (!/^[A-Z]{2}$/.test(country)) {
-    errors.push({ field: `tourists.${index}.identityDocumentCountryCode`, message: `${label}: държавата на документа трябва да е 2 главни букви, напр. BG.` });
-  }
-  if (tourist.identityNumber.trim().length > 10) {
-    errors.push({ field: `tourists.${index}.identityNumber`, message: `${label}: ЕГН/ЛНЧ трябва да е максимум 10 символа.` });
-  }
+  if (tourist.identityDocumentTypeCode && !["ICA", "PAS", "DRL"].includes(tourist.identityDocumentTypeCode)) errors.push({ field: `tourists.${index}.document`, message: `${label}: невалиден вид документ.` });
+  if (tourist.identityDocumentCountryCode && !/^[A-Z]{2}$/.test(tourist.identityDocumentCountryCode)) errors.push({ field: `tourists.${index}.country`, message: `${label}: невалиден код на държава.` });
   if (tourist.identityDocumentNumber.trim().length > 20) {
     errors.push({ field: `tourists.${index}.identityDocumentNumber`, message: `${label}: номерът на документа трябва да е максимум 20 символа.` });
   }
-  if (!hasCompleteIdentification(tourist)) {
-    errors.push({ field: `tourists.${index}.identity`, message: `${label}: попълни ЕГН/ЛНЧ или пълни данни за документ.` });
-  }
-  if (!getAllowedRooms(reservation).includes(String(tourist.room))) {
+  if (tourist.room && !getAllowedRooms(reservation).includes(String(tourist.room))) {
     errors.push({ field: `tourists.${index}.room`, message: `${label}: избери реална стая. Не може да се export-ва "цялата".` });
   }
   if (tourist.touristPackage !== "TRUE" && tourist.touristPackage !== "FALSE") {
     errors.push({ field: `tourists.${index}.touristPackage`, message: `${label}: TouristPackage трябва да е TRUE или FALSE.` });
   }
-  if (!tourist.avgNightPrice.trim() || !formatEstiMoney(tourist.avgNightPrice)) {
-    errors.push({ field: `tourists.${index}.avgNightPrice`, message: `${label}: попълни валидна неотрицателна средна цена на нощувка.` });
-  }
+
 }
 
 export function getAllowedRooms(reservation: Reservation): string[] {
   if (!reservation.rooms.includes("all")) return reservation.rooms.map(String);
   return PROPERTIES.find((property) => property.id === reservation.propertyId)?.rooms || [];
-}
-
-function hasCompleteIdentification(tourist: EstiTouristDraft): boolean {
-  const hasIdentityNumber = tourist.identityNumber.trim().length > 0;
-  const hasDocument = Boolean(
-    tourist.identityDocumentTypeCode &&
-      tourist.identityDocumentNumber.trim() &&
-      /^[A-Z]{2}$/.test(tourist.identityDocumentCountryCode.trim())
-  );
-  return hasIdentityNumber || hasDocument;
 }
 
 function isCheckoutAfterCheckin(checkin: string, checkInTime: string, checkout: string, checkOutTime: string): boolean {
