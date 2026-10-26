@@ -87,7 +87,17 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           }}
         />
       </head>
-      <body>{children}</body>
+      <body>{children}<script dangerouslySetInnerHTML={{ __html: `
+        setTimeout(function () {
+          if (document.documentElement.dataset.appMounted === "true") return;
+          var box = document.createElement("section");
+          box.id = "startup-recovery";
+          box.setAttribute("role", "alert");
+          box.style.cssText = "position:fixed;inset:0;z-index:99999;background:#f6f1e7;color:#234b3a;padding:32px;font:18px system-ui;overflow:auto";
+          box.innerHTML = '<h1>Hotel Lidia</h1><p>Началният екран е получен, но приложението не успя да стартира.</p><p><a href="/connection-check.html">Провери връзката и възстанови отварянето</a></p><p>Резервациите не са променени.</p>';
+          document.body.appendChild(box);
+        }, 20000);
+      ` }} /></body>
     </html>
   );
 }

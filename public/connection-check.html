@@ -1,0 +1,35 @@
+<!doctype html><html lang="bg"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Lidia · Проверка на връзката</title>
+<style>body{font:17px system-ui;background:#f6f1e7;color:#234b3a;max-width:680px;margin:32px auto;padding:20px}button,a{display:inline-block;padding:14px;margin:8px 8px 8px 0;border:0;border-radius:12px;background:#234b3a;color:white;font:inherit}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:white;padding:18px;border-radius:14px}button:disabled{opacity:.5}</style>
+<h1>Проверка на връзката</h1><p>Отвори тази страница на мобилни данни. Проверката не чете резервации, пароли или данни за гости.</p><pre id="results" aria-live="polite">Статичната страница е заредена.
+</pre><button id="run">Повтори проверката</button><button id="repair">Обнови локалното зареждане</button><a href="/?tab=upcoming">Отвори приложението</a><p>Обновяването премахва само стария service worker и кешове на приложението. Не изтрива входа или локално запазените резервации. При следващото отваряне известията могат да поискат повторно включване.</p>
+<script>
+(function(){
+var output=document.getElementById('results'),run=document.getElementById('run'),repair=document.getElementById('repair');
+function line(text){output.textContent+=text+'\n';}
+async function probe(label,url,opaque){
+ var controller=new AbortController(),timer=setTimeout(function(){controller.abort();},10000),start=Date.now();
+ try{var response=await fetch(url,{cache:'no-store',signal:controller.signal,mode:opaque?'no-cors':'same-origin',credentials:opaque?'omit':'same-origin'});
+ var text=opaque?'':await response.text();
+ if(!opaque&&!response.ok)throw new Error('HTTP '+response.status);
+ line(label+': '+(opaque?'достигнат адрес (не проверява входа)':'OK')+' · '+(Date.now()-start)+' ms');return text;
+ }catch(e){line(label+': '+(e.name==='AbortError'?'над 10 секунди':e.message));return null;}finally{clearTimeout(timer);}
+}
+async function check(){run.disabled=true;output.textContent='Статичната страница е заредена. Версия: mobile-6\n';
+ try{
+ line('Service worker: '+(navigator.serviceWorker&&navigator.serviceWorker.controller?'контролира страницата':'няма активен контролер'));
+ var html=await probe('Начален HTML','/?tab=upcoming&connection_check='+Date.now());
+ if(html!==null){var doc=new DOMParser().parseFromString(html,'text/html');var assets=Array.from(doc.querySelectorAll('script[src],link[rel="stylesheet"]')).map(function(el){return el.getAttribute('src')||el.getAttribute('href');}).filter(function(url){return url&&url.startsWith('/_next/static/');});
+ if(!assets.length)line('Не са намерени файлове на приложението в отговора.');
+ for(var i=0;i<assets.length;i+=3)await Promise.all(assets.slice(i,i+3).map(function(url){return probe(url.split('/').pop(),url);}));}
+ await Promise.all([probe('Google вход','https://identitytoolkit.googleapis.com/',true),probe('Google обновяване на входа','https://securetoken.googleapis.com/',true),probe('Firebase адрес','https://hotel-lidia-default-rtdb.europe-west1.firebasedatabase.app/.info/connected.json',true)]);
+ line('Край на проверката. Изпрати снимка на резултатите.');
+ }catch(e){line('Проверка: '+e.message);}finally{run.disabled=false;}}
+run.onclick=check;
+repair.onclick=async function(){repair.disabled=true;try{
+ if('serviceWorker'in navigator){var regs=await navigator.serviceWorker.getRegistrations();for(var reg of regs){if(new URL(reg.scope).origin===location.origin)await reg.unregister();}}
+ if('caches'in window){var keys=await caches.keys();await Promise.all(keys.filter(function(k){return k.startsWith('hotel-lidia-');}).map(function(k){return caches.delete(k);}));}
+ line('Локалното зареждане е обновено. Отвори приложението от бутона.');
+ }catch(e){line('Обновяване: '+e.message);}finally{repair.disabled=false;}};
+check();
+})();
+</script></html>
