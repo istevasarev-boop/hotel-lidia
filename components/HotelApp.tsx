@@ -301,6 +301,8 @@ export function HotelApp({
   const cleanUrl = `/?tab=${tab}&property=${activeProperty}`;
 
   useEffect(() => {
+    document.documentElement.dataset.appMounted = "true";
+    document.getElementById("startup-recovery")?.remove();
     if ("serviceWorker" in navigator) {
       if (process.env.NODE_ENV === "production") {
         navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch(() => undefined);
