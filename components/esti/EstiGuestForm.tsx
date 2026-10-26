@@ -32,9 +32,8 @@ export function EstiGuestForm({ tourist, index, roomOptions, canRemove, onChange
         )}
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2">
         <TextField required label="Име" value={tourist.firstName} onChange={(value) => onChange({ ...tourist, firstName: value })} />
-        <TextField label="Презиме" value={tourist.middleName} onChange={(value) => onChange({ ...tourist, middleName: value })} />
         <TextField required label="Фамилия" value={tourist.lastName} onChange={(value) => onChange({ ...tourist, lastName: value })} />
       </div>
 

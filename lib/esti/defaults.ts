@@ -1,3 +1,4 @@
+import { repairAutofilledName } from "./names";
 import type { PropertyId, Reservation } from "@/domain/reservations/types";
 import type { EstiExportDraft } from "./types";
 
@@ -14,7 +15,7 @@ export function estiReservation(reservation: Reservation, draft: EstiExportDraft
 }
 export function applyEstiDefaults(reservation: Reservation, draft: EstiExportDraft): EstiExportDraft {
   const propertyId = estiReservation(reservation, draft).propertyId;
-  return { ...draft, propertyId: isEstiProperty(propertyId) ? propertyId : undefined,
+  return { ...draft, tourists: draft.tourists.map((tourist, index) => index === 0 ? repairAutofilledName(tourist, reservation.guestName || "") : tourist), propertyId: isEstiProperty(propertyId) ? propertyId : undefined,
     accomodationPlaceUin: isEstiProperty(propertyId) ? ESTI_PROPERTY_UINS[propertyId] : "",
     checkInTime: draft.checkInTime || "14:00", checkOutTime: draft.checkOutTime || "12:00" };
 }

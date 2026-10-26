@@ -50,6 +50,7 @@ export function isValidAccomodationPlaceUin(value: string): boolean {
 function validateTourist(reservation: Reservation, tourist: EstiTouristDraft, index: number, errors: EstiValidationError[]): void {
   const label = `Турист ${index + 1}`;
   if (!tourist.firstName.trim()) errors.push({ field: `tourists.${index}.firstName`, message: `${label}: попълни име.` });
+  if (/\d/.test(tourist.firstName + tourist.lastName)) errors.push({ field: `tourists.${index}.name`, message: `${label}: имената не могат да съдържат цифри. Провери името и фамилията.` });
   if (!tourist.lastName.trim()) errors.push({ field: `tourists.${index}.lastName`, message: `${label}: попълни фамилия.` });
   if (identityMode(tourist) === "egn") {
     if (!parseEgn(tourist.identityNumber.trim())) errors.push({ field: `tourists.${index}.identityNumber`, message: `${label}: попълни валидно ЕГН.` });
