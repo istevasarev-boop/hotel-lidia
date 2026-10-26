@@ -9,6 +9,7 @@ import { getAllowedRooms, type EstiValidationError, validateEstiExport } from "@
 import { estiRequest, downloadBatch } from "@/lib/esti/client";
 import { isLocked, type EstiRecord } from "@/lib/esti/register";
 import { applyEstiDefaults, estiReservation, isEstiProperty } from "@/lib/esti/defaults";
+import { splitGuestName } from "@/lib/esti/names";
 import { EstiGuestForm } from "./EstiGuestForm";
 
 type EstiExportModalProps = {
@@ -289,11 +290,4 @@ function createTouristDraft(reservation: Reservation, roomOptions: string[], ind
     touristPackage: "FALSE",
     avgNightPrice: ""
   };
-}
-
-function splitGuestName(value: string): { firstName: string; middleName: string; lastName: string } {
-  const parts = value.trim().split(/\s+/).filter(Boolean);
-  if (parts.length <= 1) return { firstName: parts[0] || "", middleName: "", lastName: "" };
-  if (parts.length === 2) return { firstName: parts[0], middleName: "", lastName: parts[1] };
-  return { firstName: parts[0], middleName: parts.slice(1, -1).join(" "), lastName: parts[parts.length - 1] };
 }
