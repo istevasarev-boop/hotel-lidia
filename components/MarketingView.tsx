@@ -3,9 +3,12 @@
 import { useEffect, useState } from "react";
 import { getCurrentIdToken } from "@/lib/firebase/auth";
 
+type Campaign = { id: string; name: string; status: string; currency: string; impressions: number; clicks: number; cost: number; conversions: number | null; allConversions?: number | null; landingPageViews?: number | null; date?: string };
 type Snapshot = {
   period: string; updatedAt: string; hostname: string;
-  campaigns: { id: string; name: string; status: string; currency: string; impressions: number; clicks: number; cost: number; conversions: number; allConversions?: number }[];
+  campaigns: Campaign[];
+  metaCampaigns?: Campaign[]; campaignDaily?: Campaign[]; metaDaily?: Campaign[];
+  campaignPeriod?: string; campaignUpdatedAt?: string; metaAttribution?: string;
   website: { sessions: number; users: number; newUsers: number; engagedSessions: number; views: number; averageSessionSeconds: number };
   cities: [string, number][]; devices: [string, number][]; sources: [string, number][]; events: [string, number][];
 };
@@ -32,25 +35,43 @@ export function MarketingView({ tab = "campaigns" }: { tab?: "campaigns" | "webs
   }, []);
   if (error) return <p role="alert" className="p-5 text-clay">Отчетът не може да бъде зареден. Отвори раздела отново или влез отново в приложението.</p>;
   if (!data) return <p role="status" className="p-5 text-clay">Зареждане на маркетинговия отчет…</p>;
-  const totals = data.campaigns.reduce((sum, row) => ({ cost: sum.cost + row.cost, clicks: sum.clicks + row.clicks, impressions: sum.impressions + row.impressions }), { cost: 0, clicks: 0, impressions: 0 });
+  const period = tab === "campaigns" ? data.campaignPeriod ?? data.period : data.period;
+  const updatedAt = tab === "campaigns" ? data.campaignUpdatedAt ?? data.updatedAt : data.updatedAt;
   const enquiries = data.events.find(([name]) => name === "Изпратено запитване")?.[1];
   return <div className="space-y-5">
-    <div><h2 className="text-2xl font-bold text-ink">{tab === "campaigns" ? "Маркетинг" : "Сайт и аудитории"}</h2><p className="mt-2 text-sm text-clay">{data.period} · Обновено: {data.updatedAt.split('-').reverse().join('.')}</p><p className="mt-1 text-sm text-clay">Google Ads + GA4 · {data.hostname}</p></div>
-    <section hidden={tab !== 'campaigns'} className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3"><Stat label="Разход · Google Ads" value={money(totals.cost, 'EUR')} /><Stat label="Кликове" value={number(totals.clicks)} detail={`CTR ${percent(totals.clicks, totals.impressions)}`} /><Stat label="Средна цена на клик" value={totals.clicks ? money(totals.cost / totals.clicks, 'EUR') : '—'} /></div>
-      <div className="rounded-2xl bg-white p-4"><h3 className="mb-3 text-lg font-bold text-ink">Кампании · Google Ads</h3>
-        <table className="hidden w-full text-sm lg:table"><thead><tr className="text-left text-clay"><th className="py-3">Кампания</th>{['Импресии','Кликове','Разход','CTR','Основни конверсии','Всички конверсии'].map(label => <th className="p-2 text-right" key={label}>{label}</th>)}</tr></thead><tbody>{data.campaigns.map(row => <tr className="border-t border-stone-200" key={row.id}><td className="py-4">{row.name}<span className="block text-xs text-emerald-700">{row.status.toLowerCase() === "enabled" ? "Активна" : "Спряна"}</span></td>{[number(row.impressions),number(row.clicks),money(row.cost,row.currency),percent(row.clicks,row.impressions),number(row.conversions),row.allConversions === undefined ? "—" : number(row.allConversions)].map((value,i) => <td className="p-2 text-right tabular-nums" key={i}>{value}</td>)}</tr>)}</tbody></table>
-        <div className="space-y-5 lg:hidden">{data.campaigns.map(row => <div key={row.id}><h4 className="break-words font-bold">{row.name}</h4><p className="mb-2 text-sm text-emerald-700">{row.status.toLowerCase() === "enabled" ? "Активна" : "Спряна"}</p><Rows rows={[["Разход",money(row.cost,row.currency)],["Импресии / кликове",`${number(row.impressions)} / ${number(row.clicks)}`],["CTR",percent(row.clicks,row.impressions)],["Цена на клик",row.clicks ? money(row.cost/row.clicks,row.currency) : '—'],["Основни конверсии",number(row.conversions)],["Всички конверсии",row.allConversions === undefined ? "—" : number(row.allConversions)]]} /></div>)}</div>
-      </div><p className="rounded-xl bg-emerald-50 p-4 text-sm leading-relaxed text-emerald-950">Основните и всички конверсии в Google Ads се показват отделно: вторичните действия са включени само във „Всички конверсии“. Запитванията в GA4 обхващат всички източници на сайта. CPA и ROAS: няма надеждни данни за атрибуция и приходи.</p>
+    <div><h2 className="text-2xl font-bold text-ink">{tab === "campaigns" ? "Маркетинг" : "Сайт и аудитории"}</h2><p className="mt-2 text-sm text-clay">{period} · Обновено: {updatedAt.split('-').reverse().join('.')}</p><p className="mt-1 text-sm text-clay">{tab === "campaigns" ? "Google Ads + Meta Ads" : "GA4"} · {data.hostname}</p></div>
+    <section hidden={tab !== 'campaigns'} className="space-y-5">
+      <CampaignPanel title="Google Ads" campaigns={data.campaigns} daily={data.campaignDaily} />
+      {data.metaCampaigns && <CampaignPanel title="Meta Ads" campaigns={data.metaCampaigns} daily={data.metaDaily} meta />}
+      <p className="rounded-xl bg-emerald-50 p-4 text-sm leading-relaxed text-emerald-950">Google Ads: основните и всички конверсии са отделни показатели, по дата на рекламното взаимодействие. Meta: кликове по линка; реализациите са Website leads. {data.metaAttribution}. „—“ означава липсващи данни, а не нула. Реализациите не са потвърдени резервации. Разходите в EUR и USD се показват отделно.</p>
     </section>
     <section hidden={tab !== 'website'} className="space-y-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-3"><Stat label="Посещения (сесии)" value={number(data.website.sessions)} detail={`${number(data.website.users)} потребители`} /><Stat label="Изпратени запитвания" value={enquiries === undefined ? "—" : number(enquiries)} detail="Събития, всички източници" /><Stat label="Ангажираност" value={percent(data.website.engagedSessions,data.website.sessions)} detail={`${data.website.engagedSessions} ангажирани сесии`} /></div>
       <div className="grid gap-4 lg:grid-cols-2"><Panel title="Градове"><Rows rows={data.cities.map(([city,sessions]) => [city,`${sessions} · ${percent(sessions,data.website.sessions)}`])} /></Panel><Panel title="Устройства"><Rows rows={data.devices.map(([device,sessions]) => [device,`${sessions} · ${percent(sessions,data.website.sessions)}`])} /></Panel><Panel title="Източници на посещения"><Rows rows={data.sources.map(([source,sessions]) => [source,number(sessions)])} /></Panel><Panel title="Действия на сайта"><Rows rows={data.events.map(([event,count]) => [event,number(count)])} /></Panel><Panel title="Други KPI"><Rows rows={[["Нови потребители",number(data.website.newUsers)],["Прегледи на страници",number(data.website.views)],["Прегледи на сесия",number(data.website.views/data.website.sessions,2)],["Средна сесия",`${number(data.website.averageSessionSeconds)} сек.`]]} /></Panel></div>
       <p className="rounded-xl bg-emerald-50 p-4 text-sm leading-relaxed text-emerald-950">Само {data.hostname}, без тестовия сайт. Събитията не са уникални хора или потвърдени резервации. generate_lead не се добавя повторно към enquiry_submitted.</p>
     </section>
-    <p className="text-xs leading-relaxed text-clay">Последните 48 часа може още да се дообработват в Google. Разбивките по градове, устройства и източници може да се различават от общия брой сесии. Експорт към {data.updatedAt.split('-').reverse().join('.')} · Автоматичните синхронизации още не са настроени.</p>
+    <p className="text-xs leading-relaxed text-clay">Последните 48 часа може още да се дообработват в Google. Разбивките по градове, устройства и източници може да се различават от общия брой сесии. Експорт към {updatedAt.split('-').reverse().join('.')} · Еднократен експорт; няма автоматично обновяване.</p>
   </div>;
 }
 function Stat({label,value,detail}:{label:string;value:string;detail?:string}) { return <div className="min-w-0 rounded-2xl bg-white p-4"><p className="text-sm text-clay">{label}</p><p className="my-2 break-words text-2xl font-bold tabular-nums text-ink">{value}</p>{detail && <p className="text-xs text-clay">{detail}</p>}</div>; }
 function Panel({title,children}:{title:string;children:React.ReactNode}) { return <div className="min-w-0 rounded-2xl bg-white p-4"><h3 className="mb-3 text-lg font-bold text-ink">{title}</h3>{children}</div>; }
 function Rows({rows}:{rows:[string,string][]}) { return <dl>{rows.map(([label,value]) => <div key={label} className="flex items-start justify-between gap-3 border-b border-stone-100 py-3 text-sm"><dt className="min-w-0 break-words text-clay">{label}</dt><dd className="shrink-0 text-right font-semibold tabular-nums text-ink">{value}</dd></div>)}</dl>; }
+
+function CampaignPanel({ title, campaigns, daily = [], meta = false }: { title: string; campaigns: Campaign[]; daily?: Campaign[]; meta?: boolean }) {
+  const metric = (value: number | null | undefined) => value == null ? "—" : number(value, Number.isInteger(value) ? 0 : 2);
+  const currencies = [...new Set(campaigns.map(row => row.currency))];
+  const dailyRows = [...daily].sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "") || a.name.localeCompare(b.name));
+  return <div className="space-y-3">
+    <h3 className="text-xl font-bold text-ink">{title}</h3>
+    {currencies.map(currency => {
+      const rows = campaigns.filter(row => row.currency === currency);
+      const totals = rows.reduce((s, r) => ({ cost: s.cost + r.cost, clicks: s.clicks + r.clicks, impressions: s.impressions + r.impressions }), { cost: 0, clicks: 0, impressions: 0 });
+      return <div key={currency} className="grid grid-cols-2 gap-3 lg:grid-cols-3"><Stat label={`Разход · ${currency}`} value={money(totals.cost, currency)} /><Stat label={meta ? "Кликове по линка" : "Кликове"} value={number(totals.clicks)} detail={`CTR ${percent(totals.clicks, totals.impressions)}`} /><Stat label="Средна цена на клик" value={totals.clicks ? money(totals.cost / totals.clicks, currency) : "—"} /></div>;
+    })}
+    {campaigns.map(row => <Panel key={row.id} title={row.name}>
+      <p className="text-sm text-emerald-700">{["enabled", "active"].includes(row.status.toLowerCase()) ? "Активна" : "Спряна"} · статус към експорта</p>
+      <Rows rows={[["Разход", money(row.cost, row.currency)], ["Показвания", number(row.impressions)], [meta ? "Кликове по линка" : "Кликове", number(row.clicks)], ["CTR", percent(row.clicks, row.impressions)], ["Цена на клик", row.clicks ? money(row.cost / row.clicks, row.currency) : "—"], [meta ? "Запитвания през сайта (Meta)" : "Основни конверсии", metric(row.conversions)], [meta ? "Зареждания на страницата" : "Всички конверсии", metric(meta ? row.landingPageViews : row.allConversions)]]} />
+    </Panel>)}
+    {dailyRows.length > 0 && <details className="rounded-2xl bg-white p-4"><summary className="cursor-pointer font-bold text-ink">Дневна разбивка · {title}</summary><div className="mt-3 overflow-x-auto"><table className="w-full text-sm"><thead><tr className="text-left text-clay">{["Дата", "Кампания", "Показвания", meta ? "Кликове по линка" : "Кликове", "Разход", meta ? "Запитвания" : "Основни конверсии", meta ? "Зареждания" : "Всички конверсии"].map(label => <th className="p-2" key={label}>{label}</th>)}</tr></thead><tbody>{dailyRows.map(row => <tr className="border-t border-stone-200" key={`${row.date}-${row.id}`}><td className="whitespace-nowrap p-2">{row.date?.split("-").reverse().join(".")}</td><td className="min-w-40 p-2">{row.name}</td>{[number(row.impressions), number(row.clicks), money(row.cost, row.currency), metric(row.conversions), metric(meta ? row.landingPageViews : row.allConversions)].map((value, i) => <td className="whitespace-nowrap p-2 text-right tabular-nums" key={i}>{value}</td>)}</tr>)}</tbody></table></div></details>}
+  </div>;
+}

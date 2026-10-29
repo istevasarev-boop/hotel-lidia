@@ -11,7 +11,22 @@ export async function GET(request: NextRequest) {
   const raw = process.env.MARKETING_SNAPSHOT_JSON;
   if (!raw) return NextResponse.json({ error: "Marketing report not configured" }, { status: 503 });
   try {
-    return NextResponse.json(JSON.parse(raw), { headers: { "Cache-Control": "private, no-store" } });
+    const snapshot = JSON.parse(raw);
+    const campaignsRaw = process.env.CAMPAIGNS_SNAPSHOT_JSON;
+    if (campaignsRaw) {
+      const update = JSON.parse(campaignsRaw);
+      if (!Array.isArray(update.campaigns) || !Array.isArray(update.metaCampaigns) || !update.period || !update.updatedAt) {
+        throw new Error("Invalid campaign snapshot");
+      }
+      snapshot.campaignPeriod = update.period;
+      snapshot.campaignUpdatedAt = update.updatedAt;
+      snapshot.campaigns = update.campaigns;
+      snapshot.metaCampaigns = update.metaCampaigns;
+      snapshot.campaignDaily = update.campaignDaily;
+      snapshot.metaDaily = update.metaDaily;
+      snapshot.metaAttribution = update.metaAttribution;
+    }
+    return NextResponse.json(snapshot, { headers: { "Cache-Control": "private, no-store" } });
   } catch {
     return NextResponse.json({ error: "Marketing report unavailable" }, { status: 503 });
   }
