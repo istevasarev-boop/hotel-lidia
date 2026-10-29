@@ -1319,7 +1319,7 @@ function EnquiriesPreview({ reservations, onCreateReservation, onNewCountChange,
               <p className="mt-1 text-clay">{linkedReservation.checkin} → {linkedReservation.checkout} · {PROPERTIES.find(item => item.id === linkedReservation.propertyId)?.name} · {linkedReservation.rooms.includes("all") ? "Целият обект" : `Стаи ${linkedReservation.rooms.join(", ")}`}</p>
               <a className="tap-target mt-2 inline-flex items-center font-bold text-brand-800 underline" href={`/?tab=upcoming&property=${linkedReservation.propertyId}&edit=${linkedReservation.id}`}>Отвори резервацията →</a>
             </div>}
-            {!alreadyCreated && <EnquiryReservationLink key={selected.id} enquiry={selected} reservations={calendar.ready ? calendar.reservations : reservations} ready={calendar.ready} onLink={onLinkReservation} />}
+            {!alreadyCreated && <EnquiryReservationLink key={`reservation-link-${selected.id}`} enquiry={selected} reservations={calendar.ready ? calendar.reservations : reservations} ready={calendar.ready} onLink={onLinkReservation} />}
 
             <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <InfoTile label="Период" value={`${formatShortDate(selected.checkin)} – ${formatShortDate(selected.checkout)}`} />
@@ -1347,7 +1347,7 @@ function EnquiriesPreview({ reservations, onCreateReservation, onNewCountChange,
               </div>
             )}
 
-            <EnquiryConversation key={selected.id} enquiryId={selected.id} email={selected.email} />
+            <EnquiryConversation key={`conversation-${selected.id}`} enquiryId={selected.id} email={selected.email} />
 
             <div className="mt-5 flex flex-wrap gap-2 border-t border-stone-100 pt-4">
               <button
