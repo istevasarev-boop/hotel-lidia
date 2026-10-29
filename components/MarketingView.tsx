@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { MarketingDashboard } from "./MarketingDashboard";
 import { getCurrentIdToken } from "@/lib/firebase/auth";
 
-type Campaign = { id: string; name: string; status: string; currency: string; impressions: number; clicks: number; cost: number; conversions: number | null; allConversions?: number | null; landingPageViews?: number | null; date?: string };
-type Snapshot = {
+export type Campaign = { id: string; name: string; status: string; currency: string; impressions: number; clicks: number; cost: number; conversions: number | null; allConversions?: number | null; landingPageViews?: number | null; date?: string };
+export type Snapshot = {
   period: string; updatedAt: string; hostname: string;
   campaigns: Campaign[];
   metaCampaigns?: Campaign[]; campaignDaily?: Campaign[]; metaDaily?: Campaign[];
@@ -35,24 +36,9 @@ export function MarketingView({ tab = "campaigns" }: { tab?: "campaigns" | "webs
   }, []);
   if (error) return <p role="alert" className="p-5 text-clay">Отчетът не може да бъде зареден. Отвори раздела отново или влез отново в приложението.</p>;
   if (!data) return <p role="status" className="p-5 text-clay">Зареждане на маркетинговия отчет…</p>;
-  const period = tab === "campaigns" ? data.campaignPeriod ?? data.period : data.period;
-  const updatedAt = tab === "campaigns" ? data.campaignUpdatedAt ?? data.updatedAt : data.updatedAt;
-  const enquiries = data.events.find(([name]) => name === "Изпратено запитване")?.[1];
-  return <div className="space-y-5">
-    <div><h2 className="text-2xl font-bold text-ink">{tab === "campaigns" ? "Маркетинг" : "Сайт и аудитории"}</h2><p className="mt-2 text-sm text-clay">{period} · Обновено: {updatedAt.split('-').reverse().join('.')}</p><p className="mt-1 text-sm text-clay">{tab === "campaigns" ? "Google Ads + Meta Ads" : "GA4"} · {data.hostname}</p></div>
-    <section hidden={tab !== 'campaigns'} className="space-y-5">
-      <CampaignPanel title="Google Ads" campaigns={data.campaigns} daily={data.campaignDaily} />
-      {data.metaCampaigns && <CampaignPanel title="Meta Ads" campaigns={data.metaCampaigns} daily={data.metaDaily} meta />}
-      <p className="rounded-xl bg-emerald-50 p-4 text-sm leading-relaxed text-emerald-950">Google Ads: основните и всички конверсии са отделни показатели, по дата на рекламното взаимодействие. Meta: кликове по линка; реализациите са Website leads. {data.metaAttribution}. „—“ означава липсващи данни, а не нула. Реализациите не са потвърдени резервации. Разходите в EUR и USD се показват отделно.</p>
-    </section>
-    <section hidden={tab !== 'website'} className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3"><Stat label="Посещения (сесии)" value={number(data.website.sessions)} detail={`${number(data.website.users)} потребители`} /><Stat label="Изпратени запитвания" value={enquiries === undefined ? "—" : number(enquiries)} detail="Събития, всички източници" /><Stat label="Ангажираност" value={percent(data.website.engagedSessions,data.website.sessions)} detail={`${data.website.engagedSessions} ангажирани сесии`} /></div>
-      <div className="grid gap-4 lg:grid-cols-2"><Panel title="Градове"><Rows rows={data.cities.map(([city,sessions]) => [city,`${sessions} · ${percent(sessions,data.website.sessions)}`])} /></Panel><Panel title="Устройства"><Rows rows={data.devices.map(([device,sessions]) => [device,`${sessions} · ${percent(sessions,data.website.sessions)}`])} /></Panel><Panel title="Източници на посещения"><Rows rows={data.sources.map(([source,sessions]) => [source,number(sessions)])} /></Panel><Panel title="Действия на сайта"><Rows rows={data.events.map(([event,count]) => [event,number(count)])} /></Panel><Panel title="Други KPI"><Rows rows={[["Нови потребители",number(data.website.newUsers)],["Прегледи на страници",number(data.website.views)],["Прегледи на сесия",number(data.website.views/data.website.sessions,2)],["Средна сесия",`${number(data.website.averageSessionSeconds)} сек.`]]} /></Panel></div>
-      <p className="rounded-xl bg-emerald-50 p-4 text-sm leading-relaxed text-emerald-950">Само {data.hostname}, без тестовия сайт. Събитията не са уникални хора или потвърдени резервации. generate_lead не се добавя повторно към enquiry_submitted.</p>
-    </section>
-    <p className="text-xs leading-relaxed text-clay">Последните 48 часа може още да се дообработват в Google. Разбивките по градове, устройства и източници може да се различават от общия брой сесии. Експорт към {updatedAt.split('-').reverse().join('.')} · Еднократен експорт; няма автоматично обновяване.</p>
-  </div>;
+  return <MarketingDashboard data={data} tab={tab} campaignDetails={<><CampaignPanel title="Google Ads" campaigns={data.campaigns} daily={data.campaignDaily} />{data.metaCampaigns && <CampaignPanel title="Meta Ads" campaigns={data.metaCampaigns} daily={data.metaDaily} meta />}</>} />;
 }
+
 function Stat({label,value,detail}:{label:string;value:string;detail?:string}) { return <div className="min-w-0 rounded-2xl bg-white p-4"><p className="text-sm text-clay">{label}</p><p className="my-2 break-words text-2xl font-bold tabular-nums text-ink">{value}</p>{detail && <p className="text-xs text-clay">{detail}</p>}</div>; }
 function Panel({title,children}:{title:string;children:React.ReactNode}) { return <div className="min-w-0 rounded-2xl bg-white p-4"><h3 className="mb-3 text-lg font-bold text-ink">{title}</h3>{children}</div>; }
 function Rows({rows}:{rows:[string,string][]}) { return <dl>{rows.map(([label,value]) => <div key={label} className="flex items-start justify-between gap-3 border-b border-stone-100 py-3 text-sm"><dt className="min-w-0 break-words text-clay">{label}</dt><dd className="shrink-0 text-right font-semibold tabular-nums text-ink">{value}</dd></div>)}</dl>; }
