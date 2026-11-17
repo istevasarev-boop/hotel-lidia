@@ -2,7 +2,8 @@
 2026-11-17. NOT APPROVED, NOT implemented.
 
 ## Packages
-| Capability | Basic €9/mo | Family €19/mo | Pro €39/mo |
+Proposed by product owner on 2026-11-17; prices are **not finalized or approved**. Current unit caps and entitlements remain preliminary and require separate validation. VAT treatment and monthly/annual billing are undecided.
+| Capability | Basic €14.99/mo | Family €29.99/mo | Pro €79.99/mo |
 |---|---|---|---|
 | Unit cap across org | 2 | 10 | 25 |
 | Reservations, calendar, guest details | Yes | Yes | Yes |
