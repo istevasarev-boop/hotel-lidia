@@ -30,10 +30,10 @@ Goal: Productize existing functions for micro and family-owned accommodation (vi
 - Data export/backups.
 - Optional gated modules: iCal feeds, ESTI, enquiries, marketing reporting if integration can be generalized safely.
 
-## Initial package hypothesis (not approved pricing)
-Basic €9/mo: 1–2 units; calendar, reservations, guest/deposit tracking.
-Family €19/mo: 3–10 units; plus finances, reports, configurable iCal, optional ESTI.
-Pro €39/mo: up to 25 units; multiple properties, detailed reporting, optional configurable marketing.
+## Revised package pricing proposal (NOT APPROVED / not final)
+Basic €14.99/mo: 1–2 units; calendar, reservations, guest/deposit tracking.
+Family €29.99/mo: 3–10 units; plus finances, reports, configurable iCal, optional ESTI.
+Pro €79.99/mo: up to 25 units; multiple properties, detailed reporting, optional configurable marketing.
 Security, backups and data portability are included in EVERY plan. Entitlements enforced server side.
 
 ## Proposed architecture
